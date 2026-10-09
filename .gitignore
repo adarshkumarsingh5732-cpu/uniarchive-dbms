@@ -31,5 +31,8 @@ dist-ssr
 *.pem
 *.key
 
+# Vercel local state (project link + `vercel dev` caches; CLI-regenerated)
+.vercel/
+
 # Database dumps / local artifacts
 *.dump

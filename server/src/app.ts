@@ -25,7 +25,7 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
     if (process.env.NODE_ENV !== 'production') {
         console.log(`[Request] ${req.method} ${req.path}`);
     }
-    if (req.path === '/api/health' || req.path === '/api/ping') {
+    if (req.path === '/api/health') {
         next();
         return;
     }
@@ -87,7 +87,8 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 const PORT = Number(process.env.PORT) || 5000;
 
 // Start the HTTP listener unless running as a serverless function.
-// On Vercel the app is imported and invoked per-request (see api/index.ts).
+// On Vercel the `backend` service imports this default export and invokes it
+// per-request (entrypoint dist/app.js, see the repo-root vercel.json).
 if (!process.env.VERCEL) {
     const server = app.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);

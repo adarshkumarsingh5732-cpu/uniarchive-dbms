@@ -118,6 +118,31 @@ param). Keep it that way — the repository casts the integer PK with `String()`
   `multer` (memoryStorage, PDF/image/doc filter, 25 MB) → Cloudinary →
   `createResource`. The frontend `UploadOverlay` sends `FormData { file, data }`.
 
+**Vercel services-mode deploy config (2026-10-09):**
+- Root `vercel.json` moved from the single-function setup to Vercel **Services**
+  (Beta): `frontend` (Vite, root `.`, output `dist`) + `backend` (Express, root
+  `server/`, entrypoint `dist/app.js`, `buildCommand: npm run build`).
+  Top-level rewrites, specific → catch-all: host `api.*` → `backend`,
+  `/api/(.*)` → `backend`, everything else → `frontend`; CORS headers kept
+  top-level. The `frontend` service carries a service-scoped
+  `/(.*) → /index.html` so SPA deep links (`/library`, `/subject/:code`) work.
+  The `api.*` host rule only fires where a custom `api.<domain>` is attached in
+  the Vercel dashboard — preview URLs are single-host, where `/api/*` still
+  serves the same API.
+- Services receive the **original path**, so Express's `/api/*` mounts match the
+  rewrite unchanged — no client edits (`services/api.ts` already calls `/api`
+  relatively).
+- **No bindings**: nothing calls another service. The browser uses the public
+  `/api` rewrite; the API's outbound calls (Cloudinary, NVIDIA, SMTP) are
+  external SaaS, not Vercel services.
+- Removed the legacy `api/index.ts` + `api/ping.ts` (superseded — `/api` is now
+  owned entirely by the `backend` service; use `GET /api/health` as the smoke
+  test).
+- Verified: config schema-valid, both service builds green, and 7/7 route
+  checks pass under `npx vercel dev -L --port 4999` (health, search, `/`,
+  `/library`, `/subject/CSE2003`, JSON 404, preview `206`). **Not deployed** —
+  see §7/§9: an external MySQL + Vercel env vars are still required.
+
 **Credentials imported this session:**
 - `server/.env` (gitignored, NOT committed) now holds Cloudinary/SMTP/NVIDIA
   keys copied from `downloads/random shi/uniarchive/server/.env`. The local DB
@@ -224,6 +249,18 @@ npm install && npm run dev   # Vite, port 3000
 - `server/src/app.ts` binds port 5000 **unless `process.env.VERCEL` is set**
   (tests set it to `1` and bind an ephemeral port themselves). Don't reintroduce
   an `argv`-based listen guard.
+- **Vercel is services-mode** (root `vercel.json`): host `api.*` and `/api/*`
+  → `backend` service, everything else → `frontend`. Vercel preserves the
+  original path (no stripping), so Express's `/api/*` mounts must keep that
+  prefix. The `frontend` service's service-scoped `/(.*) → /index.html` is
+  load-bearing — remove it and deep links 404. Routing into a service is final:
+  unmatched `/api/...` paths are answered by Express's JSON 404, never by the
+  SPA fallback.
+- **A Vercel deployment needs an external MySQL**: the local MariaDB is
+  unreachable from Vercel, so set `DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME`
+  (plus Cloudinary/SMTP/NVIDIA keys) in the Vercel project env. `server/.env` is
+  gitignored and NOT deployed; bindings and env vars do not resolve at build
+  time.
 - **Seed FK gotcha (real, not theoretical):** `db/seed.sql` must keep
   `SET FOREIGN_KEY_CHECKS = 0` active through the whole data load. Putting
   `SET FOREIGN_KEY_CHECKS = 1` between the TRUNCATEs and the INSERTs made the
@@ -259,10 +296,11 @@ npm install && npm run dev   # Vite, port 3000
   contains that string and kills itself. Use `pgrep`/kill by PID, or a bracket
   pattern that the command line doesn't contain.
 - The Vite **dev server is on port 3000** (not 5173) and binds `0.0.0.0`.
-- **Root `package.json` intentionally mirrors the backend deps** (express 4,
-  mysql2, compression, multer, nodemailer, cloudinary). Vercel resolves
-  `server/src/*` from the *root* `node_modules`, so a new backend dependency must
-  be added to **both** `package.json` files or the deploy breaks.
+- **Root `package.json` still mirrors the backend deps** (express, mysql2, …)
+  from the old `api/index.ts` deploy path, which no longer exists. The Vercel
+  `backend` service installs from `server/package.json` only, so **new backend
+  deps go in `server/package.json`**. The root mirror is now dead weight (it can
+  be pruned, but that regenerates the root lockfile).
 - Run the API detached so it survives across tool sessions:
   `setsid nohup node dist/app.js > /tmp/ua_api.log 2>&1 < /dev/null &`
 - If a resource route renders the Discover page instead of the viewer, the API
@@ -306,7 +344,9 @@ add suppressions to make checks pass.
 - [ ] Create a dedicated MariaDB user + password instead of the anonymous user.
 - [ ] Render the ER/EER diagram to an image (PlantUML / draw.io) for submission.
 - [ ] Add the architecture note to the user's global `~/AGENTS.md` if desired.
-- [ ] Deploy (Vercel config exists in `vercel.json` + `api/index.ts`).
+- [ ] Deploy (services-mode `vercel.json` verified end-to-end with
+      `npx vercel dev -L`; legacy `api/` entries removed. Blocked on an external
+      MySQL + Vercel env vars).
 - [ ] Server-side pagination for `/api/resources` (currently returns everything).
 - [ ] Self-host the Google Fonts (3 families are still render-blocking).
 - [ ] Real sessions: OTP proves identity but issues no token, so the client
@@ -336,3 +376,4 @@ add suppressions to make checks pass.
 | 2026-10-09 | Hardening pass: `npm test` now seeds/drops `test_uniarchive_test` (via `DB_NAME` substitution in `seed.ts`) instead of the dev DB, so running tests no longer destroys uploads. Fixed the flaky `schema.test.ts` UNIQUE test to create its own colliding row (it had assumed a seed user removed in `f71895e`) — suite is now 29/29. Preview endpoint gained `Accept-Ranges`/`206`/`416` byte-range support and a bounded in-process cache. `vite.config.ts` default proxy reverted to the documented `localhost:5000`, with the local override moved to a gitignored root `.env` (`VITE_API_PROXY`). `.gitignore` hardened (`.env.*` with `!.env.example`, `*.pem`, `*.key`). |
 | 2026-10-09 | PDF preview + dev-server fixes: added `GET /api/resources/:id/preview` (inline disposition + magic-byte content sniffing + `no-store`) and pointed `ResourceViewer` at it — uploads were downloading instead of rendering because Cloudinary serves `raw` PDFs as `attachment`/`octet-stream`. Fixed the `tsx watch` SIGTERM respawn loop in `server/src/app.ts` and parsed `PORT` as a number. `LoginOverlay` now authenticates with the username (`admin123`), not the email. Vite's `/api` proxy targets 5001 to match the local `.env`. Superseded the `.env` work below. |
 | 2026-10-07 | Demo password login (branch `feature/demo-login`, commit `f71895e`): added `POST /api/auth/login` (admin123/scse, SHA-256 password, demo-only), rewrote `LoginOverlay` to a single email+password form, fenced OTP endpoints behind `smtpReady()` (503 when SMTP absent), added `password_hash` to `users`, collapsed seed to one user, and fixed two seed bugs that made `db:reset` import 0–1 resources (FK-checks-off-through-data-load + all resources use author_id=1). Imported Cloudinary/SMTP/NVIDIA keys from `downloads/random shi/uniarchive/server/.env` into `server/.env` (gitignored). Verified Cloudinary works; SMTP (535 5.7.8) and NVIDIA (JSON parse error on Bearer) keys are bad and need regeneration. |
+| 2026-10-09 | Vercel **services-mode** config (confirmed with user): root `vercel.json` defines `frontend` (Vite, root `.`, output `dist`) + `backend` (Express, root `server/`, entrypoint `dist/app.js`), top-level rewrites host `api.*`→`backend`, then `/api/(.*)`→`backend`, then catch-all→`frontend`, plus a service-scoped `/(.*)→/index.html` SPA fallback; CORS headers kept top-level. Removed legacy `api/index.ts` + `api/ping.ts`. No bindings (browser→API is same-origin public; API→Cloudinary/AI/SMTP are external). Verified: schema-valid against openapi.vercel.sh, both service builds green, route checks under `npx vercel dev -L`. |
