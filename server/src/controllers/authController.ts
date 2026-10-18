@@ -4,7 +4,9 @@ import {
     secondsSinceLastOtp,
     otpResendWindowSeconds,
     verifyAndConsumeOtp,
-    authenticateUser
+    authenticateUser,
+    findUserByUsernameOrEmail,
+    createAccount
 } from '../repositories/authRepository.js';
 import { sendEmail } from '../utils/email.js';
 
@@ -97,6 +99,74 @@ export const verifyOtp = async (req: Request, res: Response) => {
         }
     } catch (error: any) {
         res.status(500).json({ message: error.message });
+    }
+};
+
+const USERNAME_RE = /^[A-Za-z0-9._-]{3,30}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD_LENGTH = 8;
+
+// @desc    Create a normal account (no email / OTP round-trip)
+// @route   POST /api/auth/signup
+//   Body: { username, email, password }
+//   The account is verified immediately, so the client can treat a 201 like a
+//   successful login (the response carries the same public User shape).
+export const signup = async (req: Request, res: Response) => {
+    try {
+        const username = String(req.body?.username ?? '').trim();
+        const email = String(req.body?.email ?? '').trim().toLowerCase();
+        const password = String(req.body?.password ?? '');
+
+        if (!username || !email || !password) {
+            res.status(400).json({ success: false, message: 'Username, email and password are required' });
+            return;
+        }
+        if (!USERNAME_RE.test(username)) {
+            res.status(400).json({
+                success: false,
+                message: 'Username must be 3-30 characters and use only letters, numbers, dots, underscores or hyphens'
+            });
+            return;
+        }
+        if (!EMAIL_RE.test(email) || !domainAllowed(email)) {
+            res.status(400).json({
+                success: false,
+                message: allowedDomain
+                    ? `Please use a valid @${allowedDomain} email address`
+                    : 'Please enter a valid email address'
+            });
+            return;
+        }
+        if (password.length < MIN_PASSWORD_LENGTH) {
+            res.status(400).json({
+                success: false,
+                message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`
+            });
+            return;
+        }
+
+        // Friendly conflict messages before hitting the DB unique keys.
+        const existing = await findUserByUsernameOrEmail(username, email);
+        if (existing) {
+            const usernameTaken = existing.username.toLowerCase() === username.toLowerCase();
+            res.status(409).json({
+                success: false,
+                message: usernameTaken ? 'That username is already taken' : 'An account with that email already exists'
+            });
+            return;
+        }
+
+        const user = await createAccount(username, email, password);
+        res.status(201).json({ success: true, message: 'Account created', user });
+    } catch (error: any) {
+        // Race between the pre-check and the INSERT still lands here.
+        if (error?.code === 'ER_DUP_ENTRY') {
+            const field = String(error.message).includes('uq_users_username') ? 'username' : 'email';
+            res.status(409).json({ success: false, message: `That ${field} is already registered` });
+            return;
+        }
+        console.error(error);
+        res.status(500).json({ success: false, message: 'Failed to create account' });
     }
 };
 

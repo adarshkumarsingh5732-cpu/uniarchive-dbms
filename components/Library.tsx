@@ -35,12 +35,12 @@ export const Library: React.FC<Props> = ({
          </div>
          
          {pinnedSubjects.length > 0 ? (
-           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
               {pinnedSubjects.map(subject => (
                 <div key={subject.code} className="group relative bg-uni-panel border border-uni-border hover:border-uni-neon transition-all p-4">
                    <button 
                      onClick={() => onUnpinSubject(subject.code)}
-                     className="absolute top-2 right-2 text-uni-muted hover:text-uni-alert opacity-0 group-hover:opacity-100 transition-opacity"
+                     className="absolute top-1.5 right-1.5 p-1.5 text-uni-muted hover:text-uni-alert opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                      title="Unpin"
                    >
                      <X size={14} />
@@ -80,7 +80,7 @@ export const Library: React.FC<Props> = ({
                     </div>
                     <button 
                        onClick={() => onUnsaveResource(resource.id)}
-                       className="absolute top-2 right-2 z-10 bg-uni-black/80 backdrop-blur border border-uni-border p-1.5 text-uni-muted hover:text-uni-alert opacity-0 group-hover:opacity-100 transition-opacity rounded-sm shadow-md"
+                       className="absolute top-2 right-2 z-10 bg-uni-black/80 backdrop-blur border border-uni-border p-1.5 text-uni-muted hover:text-uni-alert opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity rounded-sm shadow-md"
                        title="Remove from library"
                     >
                        <Bookmark size={14} fill="currentColor" />

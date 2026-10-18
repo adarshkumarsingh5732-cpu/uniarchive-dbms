@@ -296,17 +296,17 @@ export const Dashboard: React.FC = () => {
       </Suspense>
 
       {/* Navbar */}
-      <nav className="fixed top-0 w-full z-40 bg-uni-dark/90 backdrop-blur-md border-b border-uni-border h-16 flex items-center px-6 justify-between">
-        <div className="flex items-center gap-3 group cursor-pointer" onClick={() => handleNavigation(ViewMode.DISCOVER)}>
-          <div className="w-8 h-8 bg-uni-neon flex items-center justify-center text-uni-black font-bold font-display text-xl shadow-hard-neon group-hover:rotate-12 transition-transform">
+      <nav className="fixed top-0 w-full z-40 bg-uni-dark/90 backdrop-blur-md border-b border-uni-border h-16 flex items-center px-3 sm:px-6 justify-between gap-2">
+        <div className="flex items-center gap-2 sm:gap-3 group cursor-pointer min-w-0" onClick={() => handleNavigation(ViewMode.DISCOVER)}>
+          <div className="w-8 h-8 shrink-0 bg-uni-neon flex items-center justify-center text-uni-black font-bold font-display text-xl shadow-hard-neon group-hover:rotate-12 transition-transform">
             U
           </div>
-          <span className="text-xl font-display font-bold tracking-tight text-uni-contrast group-hover:text-uni-neon transition-colors">
+          <span className="hidden sm:inline text-lg md:text-xl font-display font-bold tracking-tight text-uni-contrast group-hover:text-uni-neon transition-colors truncate">
             UNIARCHIVES
           </span>
         </div>
 
-        <div className="flex items-center gap-4 md:gap-6">
+        <div className="flex items-center gap-2 sm:gap-4 md:gap-6 shrink-0">
           <div className="hidden md:flex items-center gap-1 font-mono text-xs">
             <button
               onClick={() => handleNavigation(ViewMode.DISCOVER)}
@@ -352,22 +352,27 @@ export const Dashboard: React.FC = () => {
               </button>
             </div>
           ) : (
-            <button onClick={() => setIsLoginOpen(true)} className="flex items-center gap-2 text-xs font-bold text-uni-contrast hover:text-uni-neon transition-colors">
-              <UserIcon size={16} /> LOGIN
+            <button
+              onClick={() => setIsLoginOpen(true)}
+              className="flex items-center gap-2 text-xs font-bold text-uni-contrast hover:text-uni-neon transition-colors p-1"
+              aria-label="Log in or create an account"
+            >
+              <UserIcon size={16} /> <span className="hidden sm:inline">LOGIN</span>
             </button>
           )}
 
           <button
             onClick={() => currentUser ? setShowUpload(true) : setIsLoginOpen(true)}
-            className="bg-uni-neon text-uni-black font-mono font-bold text-xs px-4 py-2 hover:bg-uni-contrast hover:shadow-hard-neon transition-all flex items-center gap-2 uppercase tracking-wide border border-transparent"
+            className="bg-uni-neon text-uni-black font-mono font-bold text-xs px-3 sm:px-4 py-2 hover:bg-uni-contrast hover:shadow-hard-neon transition-all flex items-center gap-2 uppercase tracking-wide border border-transparent"
+            aria-label="Contribute a resource"
           >
             <Plus size={14} />
-            Contribute
+            <span className="hidden sm:inline">Contribute</span>
           </button>
         </div>
       </nav>
 
-      <main className="relative z-10 pt-24 max-w-7xl mx-auto pb-20">
+      <main className="relative z-10 pt-24 max-w-7xl mx-auto pb-24 md:pb-20">
 
         {activeTab === ViewMode.SUBJECT_DETAIL && selectedSubject ? (
           <div className="px-6 md:px-12">
@@ -474,8 +479,8 @@ export const Dashboard: React.FC = () => {
 
               {/* Filter Sidebar (Desktop + Mobile Sheet) */}
               <div className={`
-                lg:block w-64 shrink-0 space-y-8
-                ${isMobileFilterOpen ? 'fixed inset-0 z-[60] bg-uni-black/95 backdrop-blur-xl p-6 overflow-y-auto animate-in slide-in-from-bottom-10' : 'hidden'}
+                space-y-8 lg:block lg:w-64 lg:shrink-0
+                ${isMobileFilterOpen ? 'fixed inset-0 z-[60] w-full bg-uni-black/95 backdrop-blur-xl p-6 overflow-y-auto animate-in slide-in-from-bottom-10' : 'hidden'}
               `}>
 
                 {/* Mobile Header */}

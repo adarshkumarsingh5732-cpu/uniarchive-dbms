@@ -119,16 +119,16 @@ export const ResourceViewer: React.FC<Props> = ({ resource, onBack, isSaved = fa
       )}
 
       {/* Top Bar Navigation */}
-      <div className="bg-uni-panel border-b border-uni-border p-4 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-4">
+      <div className="bg-uni-panel border-b border-uni-border p-3 sm:p-4 flex items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
           <button
             onClick={onBack}
-            className="p-2 hover:bg-uni-border rounded-full text-uni-muted hover:text-uni-contrast transition-colors"
+            className="p-2 shrink-0 hover:bg-uni-border rounded-full text-uni-muted hover:text-uni-contrast transition-colors"
           >
             <ArrowLeft size={20} />
           </button>
-          <div>
-            <div className="flex items-center gap-2 text-xs font-mono mb-1">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs font-mono mb-1">
               <span className="text-uni-neon border border-uni-neon px-1.5 rounded-sm">{resource.courseCode}</span>
               <span className="text-uni-muted">{resource.slot}</span>
               <span className="text-uni-muted">•</span>
@@ -138,10 +138,10 @@ export const ResourceViewer: React.FC<Props> = ({ resource, onBack, isSaved = fa
                 <span>{resource.views.toLocaleString()}</span>
               </div>
             </div>
-            <h1 className="text-uni-contrast font-display font-bold text-lg leading-none">{resource.title}</h1>
+            <h1 className="text-uni-contrast font-display font-bold text-sm sm:text-lg leading-tight truncate">{resource.title}</h1>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1 sm:gap-3 shrink-0">
           <button
             onClick={() => onToggleSave?.(resource)}
             className={`p-2 transition-colors border ${isSaved ? 'text-uni-neon border-uni-neon bg-uni-neon/10' : 'text-uni-muted border-transparent hover:text-uni-contrast hover:bg-uni-border'}`}
@@ -165,7 +165,7 @@ export const ResourceViewer: React.FC<Props> = ({ resource, onBack, isSaved = fa
           </button>
           <button
             onClick={handleReport}
-            className="p-2 text-uni-muted hover:text-uni-alert hover:bg-uni-border transition-colors"
+            className="hidden sm:block p-2 text-uni-muted hover:text-uni-alert hover:bg-uni-border transition-colors"
             title="Report"
           >
             <Flag size={18} />
@@ -173,16 +173,16 @@ export const ResourceViewer: React.FC<Props> = ({ resource, onBack, isSaved = fa
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden flex-col md:flex-row">
+      <div className="flex-1 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden">
         {/* PDF Viewer Pane */}
-        <div className="flex-1 bg-uni-black p-0 md:p-6 overflow-y-auto border-r border-uni-border flex flex-col items-center">
+        <div className="h-[60vh] shrink-0 md:h-auto md:flex-1 bg-uni-black p-0 md:p-6 overflow-hidden md:overflow-y-auto border-b md:border-b-0 md:border-r border-uni-border flex flex-col items-center">
           <div ref={viewerContainerRef} className="w-full h-full md:max-w-4xl bg-uni-panel shadow-2xl border border-uni-border relative flex flex-col group">
             {resource.pdfUrl ? (
               <>
                 {/* Fullscreen Toggle Button - Appears on Hover */}
                 <button
                   onClick={toggleFullscreen}
-                  className="absolute top-4 right-4 z-10 bg-uni-black/80 text-uni-contrast p-2 rounded hover:bg-uni-neon hover:text-uni-black transition-all opacity-0 group-hover:opacity-100"
+                  className="absolute top-4 right-4 z-10 bg-uni-black/80 text-uni-contrast p-2 rounded hover:bg-uni-neon hover:text-uni-black transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
                   title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
                 >
                   {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
@@ -222,7 +222,7 @@ export const ResourceViewer: React.FC<Props> = ({ resource, onBack, isSaved = fa
         </div>
 
         {/* Discussion Pane (Reddit Style) */}
-        <div className="w-full md:w-96 bg-uni-panel shrink-0 flex flex-col border-l border-uni-border h-1/2 md:h-full">
+        <div className="w-full md:w-96 bg-uni-panel shrink-0 flex flex-col md:border-l border-uni-border md:h-full">
 
           {/* Sidebar Header */}
           <div className="p-4 border-b border-uni-border">
@@ -281,7 +281,7 @@ export const ResourceViewer: React.FC<Props> = ({ resource, onBack, isSaved = fa
                     <span className="text-[10px] text-uni-muted">{comment.timestamp}</span>
                   </div>
                   <p className="text-xs text-uni-text leading-relaxed">{comment.text}</p>
-                  <div className="flex gap-3 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex gap-3 mt-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                     <button className="text-[10px] font-bold text-uni-muted hover:text-uni-contrast">Reply</button>
                     <button className="text-[10px] font-bold text-uni-muted hover:text-uni-contrast">Report</button>
                   </div>

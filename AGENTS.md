@@ -61,15 +61,9 @@ param). Keep it that way — the repository casts the integer PK with `String()`
   10 resources, 34 topic links, 3 comments, 2,912 activity rows, **1 user**
   (admin123 / admin123@uniarchive.local, role=admin, is_verified=1).
 - Backend + frontend both build; `tsc --noEmit` clean.
-- **29 tests; 28 pass.** `UNIQUE constraints prevent duplicate keys`
-  (`server/test/schema.test.ts`) fails on every clean run: it asserts that
-  inserting `stat_god_99` is rejected, but the seed was collapsed to a single
-  user (`f71895e`), so nothing is there to collide with. The test's own INSERT
-  then creates the row, which is why a *second* run in the same database passes.
-  Re-add the user to `db/seed.sql` or change the assertion to fix it properly.
-- API contract unchanged for existing endpoints; a new
-  `POST /api/auth/login` was added (returns the same `User` shape as
-  `/api/auth/verify`).
+- **37 tests; 37 pass.** (`npm test` reseeds `test_uniarchive_test` first.)
+- API contract unchanged for existing endpoints; `POST /api/auth/login` and
+  `POST /api/auth/signup` return the same `User` shape as `/api/auth/verify`.
 - Published: **github.com/amorfati3735/uniarchive-dbms** (public).
   `origin` = that repo, `upstream` = the original `amorfati3735/uniarchive`.
   New work is on branch **feature/demo-login** (commit `f71895e`).
@@ -159,8 +153,41 @@ param). Keep it that way — the repository casts the integer PK with `String()`
   (via Cloudinary) all work; OTP-email and AI-chat do not (bad keys, not a
   code bug).
 
+**Signup without SMTP + mobile layout (2026-10-18, later session):**
+- `POST /api/auth/signup` (`{ username, email, password }`) creates a normal
+  student account that works immediately — **no OTP, no SMTP**. 201 on success
+  with `{ success, message, user }`; 400 on validation (username 3–30 of
+  `[A-Za-z0-9._-]`, email shape, `ALLOWED_EMAIL_DOMAIN` if set, password ≥ 8);
+  409 when the username or email is taken (pre-check + `ER_DUP_ENTRY` catch).
+- Passwords for new accounts are **scrypt** (`scrypt$<salt>$<hash>`, salted,
+  `timingSafeEqual` compare) via `hashPassword`/`verifyPassword` in
+  `authRepository.ts`. The seeded demo row keeps its unsalted SHA-256 hash and
+  `verifyPassword` still accepts that legacy format — see §7.
+- `LoginOverlay` is now a two-tab modal (Sign in / Create account). The flow
+  was verified end-to-end in headless Chrome at 390px: signup
+  closes the modal, writes `uniarchive_user`, the navbar shows the username,
+  and the same credential logs back in.
+- Deployed: frontend re-deployed to **https://uniarchive.vercel.app**
+  (`vercel deploy --prod`). The live `/api/auth/signup` works because the
+  `/api` rewrite proxies to the local backend through the Cloudflare tunnel.
+- Mobile fixes (all routes now measure `scrollWidth === clientWidth` at 320 and
+  360 px in headless Chrome):
+  - Navbar no longer overflows — the wordmark, `LOGIN` label and `Contribute`
+    label collapse to icons under `sm`, with tighter padding.
+  - The mobile filter sheet was only `w-64` inside `inset-0` (256px sheet with
+    the rest of the page visible behind it); it is now `w-full` and uses
+    `lg:w-64` for the desktop sidebar.
+  - Login/Upload overlays moved to `z-[70]` so the fixed bottom `MobileNav`
+    (`z-50`, rendered later in the DOM) can no longer paint over them.
+  - Viewer/Search-overlay-only affordances that were `opacity-0` until hover
+    (Library unpin + unsave, comment Reply/Report, fullscreen toggle) are now
+    always visible below `md`, and the ResourceViewer splits PDF/discussion
+    vertically with the PDF pane at `60vh` instead of `h-1/2`.
+  - `SubjectDetail`/`Analytics`/`ResourceCard` headers wrap instead of
+    overflowing; `main` reserves `pb-24` for the bottom nav.
+
 **Not done / optional** (see §9): dedicated DB user, rendered ER image,
-fixing the broken SMTP/NVIDIA keys, any deployment.
+fixing the broken SMTP/NVIDIA keys, a stable (non-ephemeral) tunnel URL.
 
 ## 4. Run it
 
@@ -308,8 +335,18 @@ npm install && npm run dev   # Vite, port 3000
 - `resources.upvotes/downloads/views` are **intentional** denormalized counters
   (documented in `docs/case-study.md`). Don't "normalize" them away without
   updating the case study.
-- **The demo password is trivial** (`scse`, SHA-256 only). Anyone with the demo
-  credential can log in. This is fine for a local demo, not for anything public.
+- **The demo password is trivial** (`scse`, legacy unsalted SHA-256). Anyone
+  with the demo credential can log in. Real signups use salted scrypt, but
+  there is still no rate limiting, sessions or email verification — demo-grade.
+- **Two password formats exist side by side** (`users.password_hash`):
+  `scrypt$<16-byte salt hex>$<32-byte hash hex>` for accounts created through
+  `/api/auth/signup`, and a bare 64-char SHA-256 hex for the seeded `admin123`
+  row. `verifyPassword` dispatches on the `scrypt$` prefix. `password_hash` is
+  `VARCHAR(128)`; the scrypt format is ~103 chars, so **pick a shorter format or
+  widen the column** if you ever change the hash scheme.
+- Accounts created by the OTP flow (`upsertVerifiedUser`) are inserted with an
+  empty `password_hash`, so they cannot password-login — `authenticateUser`
+  filters `password_hash <> ''`. Use `/api/auth/signup` for password accounts.
 
 ## 8. How to verify a change
 
@@ -336,6 +373,8 @@ add suppressions to make checks pass.
 ## 9. Roadmap / optional work
 
 - [x] Demo password login without SMTP (`POST /api/auth/login`, admin123/scse).
+- [x] Normal account signup without SMTP (`POST /api/auth/signup`, scrypt
+      hashes, signup tab in `LoginOverlay`) + mobile layout pass.
 - [x] Collapse seed to a single demo user + fix seed FK/author bugs.
 - [x] Import Cloudinary/SMTP/NVIDIA keys from the downloaded copy (Cloudinary
       works; SMTP + NVIDIA keys are bad and need regeneration).
@@ -377,4 +416,5 @@ add suppressions to make checks pass.
 | 2026-10-09 | PDF preview + dev-server fixes: added `GET /api/resources/:id/preview` (inline disposition + magic-byte content sniffing + `no-store`) and pointed `ResourceViewer` at it — uploads were downloading instead of rendering because Cloudinary serves `raw` PDFs as `attachment`/`octet-stream`. Fixed the `tsx watch` SIGTERM respawn loop in `server/src/app.ts` and parsed `PORT` as a number. `LoginOverlay` now authenticates with the username (`admin123`), not the email. Vite's `/api` proxy targets 5001 to match the local `.env`. Superseded the `.env` work below. |
 | 2026-10-07 | Demo password login (branch `feature/demo-login`, commit `f71895e`): added `POST /api/auth/login` (admin123/scse, SHA-256 password, demo-only), rewrote `LoginOverlay` to a single email+password form, fenced OTP endpoints behind `smtpReady()` (503 when SMTP absent), added `password_hash` to `users`, collapsed seed to one user, and fixed two seed bugs that made `db:reset` import 0–1 resources (FK-checks-off-through-data-load + all resources use author_id=1). Imported Cloudinary/SMTP/NVIDIA keys from `downloads/random shi/uniarchive/server/.env` into `server/.env` (gitignored). Verified Cloudinary works; SMTP (535 5.7.8) and NVIDIA (JSON parse error on Bearer) keys are bad and need regeneration. |
 | 2026-10-09 | Vercel **services-mode** config (confirmed with user): root `vercel.json` defines `frontend` (Vite, root `.`, output `dist`) + `backend` (Express, root `server/`, entrypoint `dist/app.js`), top-level rewrites host `api.*`→`backend`, then `/api/(.*)`→`backend`, then catch-all→`frontend`, plus a service-scoped `/(.*)→/index.html` SPA fallback; CORS headers kept top-level. Removed legacy `api/index.ts` + `api/ping.ts`. No bindings (browser→API is same-origin public; API→Cloudinary/AI/SMTP are external). Verified: schema-valid against openapi.vercel.sh, both service builds green, route checks under `npx vercel dev -L`. |
+| 2026-10-18 | Signup + mobile pass. Added `POST /api/auth/signup` (normal account, no SMTP) with scrypt password hashing (`hashPassword`/`verifyPassword`, legacy SHA-256 still accepted); 400/409 validation and duplicate handling. `LoginOverlay` became a Sign in / Create account tabbed modal with `api.signup`. Tests grew 29 → 37 (signup contract, duplicate/validation rejection, scrypt-not-plaintext, legacy demo login) and all pass. Fixed phone layouts: navbar overflow, filter sheet `w-64`→`w-full`, overlays `z-[70]` above `MobileNav`, touch-invisible hover-only controls, ResourceViewer PDF/discussion split. Verified at 320/360/390px in headless Chrome (`scrollWidth === clientWidth` everywhere) plus an end-to-end UI signup, then `vercel deploy --prod`. |
 | 2026-10-18 | **Deployed: https://uniarchive.vercel.app** (project `uniarchive`, CLI-linked via `.vercel/`). Architecture changed from services-mode: root `vercel.json` is now a plain static frontend (Vite → `dist`) whose `/api/(.*)` rewrite proxies to the backend **running on the local machine** through an outbound Cloudflare quick tunnel — no inbound ports, local MariaDB never exposed (user's device-safety requirement). Tunnel: `cloudflared tunnel --url http://localhost:5001` (binary at `~/bin/cloudflared`, log `/tmp/ua_tunnel.log`); the `trycloudflare.com` URL is **ephemeral** — if it changes, update the rewrite in `vercel.json` and `vercel deploy --prod`. Backend+frontend dev processes: `/tmp/uniarchive-server.log`, `/tmp/uniarchive-frontend.log`. Services-mode `backend` service, its CORS headers and the `api.*` host rule were removed (backend is now cross-origin proxy target, same-origin to the browser). `vercel curl` warns "Deployment Protection on" but production is publicly readable (verified anon: `/`, `/library`, `/api/health`, `/api/resources`). Pushed `feature/demo-login` (036153f). |

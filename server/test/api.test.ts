@@ -158,3 +158,92 @@ test('commenting on a missing resource returns 404', async () => {
     const { status } = await postJson('/resources/999999/comments', { text: 'hi' });
     assert.equal(status, 404);
 });
+
+// --- Auth: normal account signup (no SMTP) --------------------------------
+
+// Unique per run so re-running against a non-reseeded DB can't collide.
+const RUN = Date.now().toString(36);
+const NEW_USER = {
+    username: `signup_${RUN}`,
+    email: `signup_${RUN}@vitstudent.ac.in`,
+    password: 'correct horse battery'
+};
+
+test('POST /api/auth/signup creates an account that can log in immediately', async () => {
+    const created = await postJson('/auth/signup', NEW_USER);
+    assert.equal(created.status, 201);
+    assert.equal(created.body.success, true);
+    assert.equal(created.body.user.username, NEW_USER.username);
+    assert.equal(created.body.user.email, NEW_USER.email);
+    assert.equal(created.body.user.role, 'student');
+    assert.equal(created.body.user.isVerified, true);
+    assert.ok(!('password' in created.body.user), 'the response must not echo secrets');
+
+    const login = await postJson('/auth/login', {
+        username: NEW_USER.username,
+        password: NEW_USER.password
+    });
+    assert.equal(login.status, 200);
+    assert.equal(login.body.user.username, NEW_USER.username);
+});
+
+test('signup rejects duplicate username and duplicate email', async () => {
+    const sameUsername = await postJson('/auth/signup', {
+        ...NEW_USER,
+        email: `other_${RUN}@vitstudent.ac.in`
+    });
+    assert.equal(sameUsername.status, 409);
+
+    const sameEmail = await postJson('/auth/signup', {
+        ...NEW_USER,
+        username: `other_${RUN}`
+    });
+    assert.equal(sameEmail.status, 409);
+});
+
+test('signup validates username, email and password', async () => {
+    const shortPassword = await postJson('/auth/signup', {
+        username: `weak_${RUN}`,
+        email: `weak_${RUN}@vitstudent.ac.in`,
+        password: 'short'
+    });
+    assert.equal(shortPassword.status, 400);
+
+    const badEmail = await postJson('/auth/signup', {
+        username: `mail_${RUN}`,
+        email: 'not-an-email',
+        password: 'long enough pw'
+    });
+    assert.equal(badEmail.status, 400);
+
+    const badUsername = await postJson('/auth/signup', {
+        username: 'no spaces allowed',
+        email: `space_${RUN}@vitstudent.ac.in`,
+        password: 'long enough pw'
+    });
+    assert.equal(badUsername.status, 400);
+});
+
+test('login rejects a wrong password and unknown users', async () => {
+    const wrong = await postJson('/auth/login', {
+        username: NEW_USER.username,
+        password: 'definitely wrong'
+    });
+    assert.equal(wrong.status, 401);
+
+    const unknown = await postJson('/auth/login', {
+        username: `nobody_${RUN}`,
+        password: 'whatever123'
+    });
+    assert.equal(unknown.status, 401);
+});
+
+test('the seeded demo account still logs in', async () => {
+    const { status, body } = await postJson('/auth/login', {
+        username: 'admin123',
+        password: 'scse'
+    });
+    assert.equal(status, 200);
+    assert.equal(body.user.username, 'admin123');
+    assert.equal(body.user.role, 'admin');
+});

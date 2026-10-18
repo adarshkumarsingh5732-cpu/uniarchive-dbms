@@ -12,7 +12,10 @@ import 'dotenv/config';
 import {
     upsertOtp,
     secondsSinceLastOtp,
-    verifyAndConsumeOtp
+    verifyAndConsumeOtp,
+    createAccount,
+    authenticateUser,
+    findUserByUsernameOrEmail
 } from '../src/repositories/authRepository.ts';
 
 const conn = await mysql.createConnection({
@@ -82,4 +85,41 @@ test('a correct code verifies the user, promotes it, and consumes the OTP', asyn
     const gone = await rows('SELECT 1 FROM otp_requests WHERE email = ?', [EMAIL]);
     assert.equal(gone.length, 0);
     assert.equal(await verifyAndConsumeOtp(EMAIL, '424242'), null);
+});
+
+// --- Password accounts (normal signup, no SMTP) ---------------------------
+
+// Unique per run so a re-run without reseeding can't collide.
+const RUN = Date.now().toString(36);
+const ACCOUNT = {
+    username: `acct_${RUN}`,
+    email: `acct_${RUN}@vitstudent.ac.in`,
+    password: 'a long enough password'
+};
+
+test('createAccount stores a salted scrypt hash, never the plaintext', async () => {
+    const user = await createAccount(ACCOUNT.username, ACCOUNT.email, ACCOUNT.password);
+    assert.equal(user.username, ACCOUNT.username);
+    assert.equal(user.isVerified, true);
+
+    const stored = await rows('SELECT password_hash FROM users WHERE username = ?', [ACCOUNT.username]);
+    assert.equal(stored.length, 1);
+    const hash: string = stored[0].password_hash;
+    assert.match(hash, /^scrypt\$[0-9a-f]{32}\$[0-9a-f]{64}$/);
+    assert.ok(!hash.includes(ACCOUNT.password), 'the plaintext password must not be stored');
+});
+
+test('authenticateUser accepts the right password and rejects a wrong one', async () => {
+    const ok = await authenticateUser(ACCOUNT.username, ACCOUNT.password);
+    assert.ok(ok);
+    assert.equal(ok!.email, ACCOUNT.email);
+
+    assert.equal(await authenticateUser(ACCOUNT.username, 'wrong password'), null);
+    assert.equal(await authenticateUser(`missing_${RUN}`, ACCOUNT.password), null);
+});
+
+test('findUserByUsernameOrEmail detects both uniqueness conflicts', async () => {
+    assert.ok(await findUserByUsernameOrEmail(ACCOUNT.username, 'unused@example.com'));
+    assert.ok(await findUserByUsernameOrEmail('unused_username', ACCOUNT.email));
+    assert.equal(await findUserByUsernameOrEmail(`free_${RUN}`, `free_${RUN}@example.com`), null);
 });

@@ -83,7 +83,7 @@ export const UploadOverlay: React.FC<Props> = ({ onClose, onUploadComplete, auth
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-uni-black/90 backdrop-blur-sm p-4 font-mono">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-uni-black/90 backdrop-blur-sm p-4 font-mono">
       <div className="bg-uni-dark w-full max-w-2xl border border-uni-neon shadow-hard-neon flex flex-col max-h-[90vh] overflow-hidden">
 
         {/* Header */}

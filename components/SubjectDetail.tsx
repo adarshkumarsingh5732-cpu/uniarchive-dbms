@@ -25,8 +25,8 @@ export const SubjectDetail: React.FC<Props> = ({ subjectCode, resources, stats, 
       </button>
 
       {/* Subject Header */}
-      <div className="bg-uni-panel border border-uni-border p-8 mb-8 relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none">
+      <div className="bg-uni-panel border border-uni-border p-5 sm:p-8 mb-8 relative overflow-hidden">
+        <div className="hidden md:block absolute top-0 right-0 p-12 opacity-5 pointer-events-none">
            <BookOpen size={200} className="text-uni-contrast" />
         </div>
         
@@ -34,12 +34,12 @@ export const SubjectDetail: React.FC<Props> = ({ subjectCode, resources, stats, 
           <div className="flex items-center gap-3 mb-2">
              <span className="px-2 py-1 bg-uni-neon text-uni-black font-bold font-mono text-xs rounded-sm">COURSE CODE</span>
           </div>
-          <h1 className="text-5xl font-display font-bold text-uni-contrast mb-4">{subjectCode}</h1>
-          <p className="text-uni-muted max-w-2xl font-mono text-sm">
+          <h1 className="text-3xl sm:text-5xl font-display font-bold text-uni-contrast mb-4 break-words">{subjectCode}</h1>
+          <p className="text-uni-muted max-w-2xl font-mono text-xs sm:text-sm">
             Centralized repository for {subjectCode}. Access community verified notes, question banks, and solutions from parallel slots.
           </p>
 
-          <div className="flex gap-6 mt-8 font-mono text-xs">
+          <div className="flex flex-wrap gap-4 sm:gap-6 mt-6 sm:mt-8 font-mono text-xs">
              <div className="flex items-center gap-2 text-uni-contrast">
                 <FileText size={16} className="text-uni-cyan" />
                 <span className="font-bold">{subjectResources.length}</span> Resources
@@ -57,7 +57,7 @@ export const SubjectDetail: React.FC<Props> = ({ subjectCode, resources, stats, 
       </div>
       
       {/* Activity Grid (GitHub Style) */}
-      <div className="mb-8 bg-uni-panel border border-uni-border p-6">
+      <div className="mb-8 bg-uni-panel border border-uni-border p-4 sm:p-6">
         <h3 className="font-bold text-uni-contrast text-sm uppercase mb-4">Contribution Activity</h3>
         <ContributionGrid data={stats?.activityGrid} />
       </div>
@@ -65,7 +65,7 @@ export const SubjectDetail: React.FC<Props> = ({ subjectCode, resources, stats, 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Content: Resource List */}
         <div className="lg:col-span-2 space-y-6">
-          <div className="flex justify-between items-center border-b border-uni-border pb-2">
+          <div className="flex flex-wrap gap-2 justify-between items-center border-b border-uni-border pb-2">
              <h2 className="font-display font-bold text-uni-contrast uppercase text-lg">Top Resources</h2>
              <div className="text-xs text-uni-muted font-mono">SORT: <span className="text-uni-contrast">RELEVANCE</span></div>
           </div>

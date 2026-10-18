@@ -120,6 +120,26 @@ export const api = {
         }
     },
 
+    /** Create a normal account (no email verification / OTP needed).
+     *  Returns { success, message, user } — same shape as login/verify.
+     */
+    signup: async (username: string, email: string, password: string): Promise<{ success: boolean; message: string; user?: User }> => {
+        const res = await fetch(`${API_URL}/auth/signup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, email, password })
+        });
+        const text = await res.text();
+        let body: any = null;
+        try { body = JSON.parse(text); } catch { /* non-JSON error page */ }
+
+        if (!res.ok) {
+            throw new Error(body?.message || `Signup failed (${res.status})`);
+        }
+        if (!body) throw new Error('Signup response was not valid JSON');
+        return body as { success: boolean; message: string; user?: User };
+    },
+
     // AI Assistant
     askAI: async (query: string): Promise<string> => {
         const res = await fetch(`${API_URL}/ai/ask`, {

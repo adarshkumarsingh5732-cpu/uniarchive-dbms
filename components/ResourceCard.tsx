@@ -24,8 +24,8 @@ export const ResourceCard: React.FC<Props> = ({ resource }) => {
       <div className="absolute top-0 right-0 w-8 h-8 border-t border-r border-uni-border group-hover:border-uni-neon transition-colors" />
 
       {/* Header Tags */}
-      <div className="flex justify-between items-start mb-4">
-        <div className="flex items-center gap-2">
+      <div className="flex justify-between items-start gap-2 mb-4">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 min-w-0">
           <span className="bg-uni-border text-xs font-mono px-2 py-1 text-uni-text">
             {resource.slot}
           </span>
@@ -36,7 +36,7 @@ export const ResourceCard: React.FC<Props> = ({ resource }) => {
             {resource.type}
           </span>
         </div>
-        <div className="text-xs font-bold font-mono px-2 py-1 text-uni-neon bg-uni-neon/5 border border-uni-neon/20">
+        <div className="shrink-0 text-xs font-bold font-mono px-2 py-1 text-uni-neon bg-uni-neon/5 border border-uni-neon/20">
           QS: {resource.qualityScore}
         </div>
       </div>
