@@ -140,8 +140,8 @@ param). Keep it that way — the repository casts the integer PK with `String()`
   test).
 - Verified: config schema-valid, both service builds green, and 7/7 route
   checks pass under `npx vercel dev -L --port 4999` (health, search, `/`,
-  `/library`, `/subject/CSE2003`, JSON 404, preview `206`). **Not deployed** —
-  see §7/§9: an external MySQL + Vercel env vars are still required.
+  `/library`, `/subject/CSE2003`, JSON 404, preview `206`). **Superseded by the
+  2026-10-18 entry below — the services-mode config is no longer deployed.**
 
 **Credentials imported this session:**
 - `server/.env` (gitignored, NOT committed) now holds Cloudinary/SMTP/NVIDIA
@@ -344,9 +344,9 @@ add suppressions to make checks pass.
 - [ ] Create a dedicated MariaDB user + password instead of the anonymous user.
 - [ ] Render the ER/EER diagram to an image (PlantUML / draw.io) for submission.
 - [ ] Add the architecture note to the user's global `~/AGENTS.md` if desired.
-- [ ] Deploy (services-mode `vercel.json` verified end-to-end with
-      `npx vercel dev -L`; legacy `api/` entries removed. Blocked on an external
-      MySQL + Vercel env vars).
+- [x] Deploy (2026-10-18): static frontend on Vercel + local backend via
+      outbound Cloudflare quick tunnel (see Changelog 2026-10-18). Services-mode
+      `backend` service retired — no external MySQL needed.
 - [ ] Server-side pagination for `/api/resources` (currently returns everything).
 - [ ] Self-host the Google Fonts (3 families are still render-blocking).
 - [ ] Real sessions: OTP proves identity but issues no token, so the client
@@ -377,3 +377,4 @@ add suppressions to make checks pass.
 | 2026-10-09 | PDF preview + dev-server fixes: added `GET /api/resources/:id/preview` (inline disposition + magic-byte content sniffing + `no-store`) and pointed `ResourceViewer` at it — uploads were downloading instead of rendering because Cloudinary serves `raw` PDFs as `attachment`/`octet-stream`. Fixed the `tsx watch` SIGTERM respawn loop in `server/src/app.ts` and parsed `PORT` as a number. `LoginOverlay` now authenticates with the username (`admin123`), not the email. Vite's `/api` proxy targets 5001 to match the local `.env`. Superseded the `.env` work below. |
 | 2026-10-07 | Demo password login (branch `feature/demo-login`, commit `f71895e`): added `POST /api/auth/login` (admin123/scse, SHA-256 password, demo-only), rewrote `LoginOverlay` to a single email+password form, fenced OTP endpoints behind `smtpReady()` (503 when SMTP absent), added `password_hash` to `users`, collapsed seed to one user, and fixed two seed bugs that made `db:reset` import 0–1 resources (FK-checks-off-through-data-load + all resources use author_id=1). Imported Cloudinary/SMTP/NVIDIA keys from `downloads/random shi/uniarchive/server/.env` into `server/.env` (gitignored). Verified Cloudinary works; SMTP (535 5.7.8) and NVIDIA (JSON parse error on Bearer) keys are bad and need regeneration. |
 | 2026-10-09 | Vercel **services-mode** config (confirmed with user): root `vercel.json` defines `frontend` (Vite, root `.`, output `dist`) + `backend` (Express, root `server/`, entrypoint `dist/app.js`), top-level rewrites host `api.*`→`backend`, then `/api/(.*)`→`backend`, then catch-all→`frontend`, plus a service-scoped `/(.*)→/index.html` SPA fallback; CORS headers kept top-level. Removed legacy `api/index.ts` + `api/ping.ts`. No bindings (browser→API is same-origin public; API→Cloudinary/AI/SMTP are external). Verified: schema-valid against openapi.vercel.sh, both service builds green, route checks under `npx vercel dev -L`. |
+| 2026-10-18 | **Deployed: https://uniarchive.vercel.app** (project `uniarchive`, CLI-linked via `.vercel/`). Architecture changed from services-mode: root `vercel.json` is now a plain static frontend (Vite → `dist`) whose `/api/(.*)` rewrite proxies to the backend **running on the local machine** through an outbound Cloudflare quick tunnel — no inbound ports, local MariaDB never exposed (user's device-safety requirement). Tunnel: `cloudflared tunnel --url http://localhost:5001` (binary at `~/bin/cloudflared`, log `/tmp/ua_tunnel.log`); the `trycloudflare.com` URL is **ephemeral** — if it changes, update the rewrite in `vercel.json` and `vercel deploy --prod`. Backend+frontend dev processes: `/tmp/uniarchive-server.log`, `/tmp/uniarchive-frontend.log`. Services-mode `backend` service, its CORS headers and the `api.*` host rule were removed (backend is now cross-origin proxy target, same-origin to the browser). `vercel curl` warns "Deployment Protection on" but production is publicly readable (verified anon: `/`, `/library`, `/api/health`, `/api/resources`). Pushed `feature/demo-login` (036153f). |
