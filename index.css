@@ -4,6 +4,60 @@
 @import "tw-animate-css";
 
 /* ---------------------------------------------------------------------------
+   Self-hosted fonts (latin subset, woff2).
+   Downloaded from Google Fonts once and committed under public/fonts so the
+   app makes no third-party font request.  Only the weights the UI actually
+   uses are shipped.
+
+   Roles:
+     Unbounded  — display/headings only (600, 800)
+     Inter      — reading text: descriptions, comments, FAQ answers, copy (400, 600)
+     JetBrains  — UI chrome: labels, chips, counters, timestamps (400, 700)
+--------------------------------------------------------------------------- */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/inter-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/inter-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Unbounded";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/unbounded-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Unbounded";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/unbounded-800.woff2") format("woff2");
+}
+
+/* ---------------------------------------------------------------------------
    Theme tokens.
    `inline` keeps the utility value as `var(--uni-*)`, so theme switching via
    [data-theme='light'] on <html> re-resolves at each element instead of being
@@ -12,7 +66,7 @@
 @theme inline {
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --font-display: "Unbounded", sans-serif;
-  --font-sans: "Inter", sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 
   --color-uni-black: var(--uni-black);
   --color-uni-dark: var(--uni-dark);
@@ -38,9 +92,9 @@
   --uni-dark: #0a0a0a;
   --uni-panel: #111111;
   --uni-border: #2a2a2a;
-  --uni-text: #e0e0e0;
+  --uni-text: #d4d4d8;
   --uni-text-contrast: #ffffff;
-  --uni-muted: #666666;
+  --uni-muted: #8a8a94;
 
   --uni-neon: #ccff00;
   --uni-cyan: #00f0ff;
@@ -52,23 +106,74 @@
   --uni-dark: #ffffff;
   --uni-panel: #f4f4f5;
   --uni-border: #e4e4e7;
-  --uni-text: #52525b;
+  --uni-text: #3f3f46;
   --uni-text-contrast: #18181b;
-  --uni-muted: #a1a1aa;
+  --uni-muted: #71717a;
 
   /* Darken accents slightly for visibility on a light background */
-  --uni-neon: #65a30d;
-  --uni-cyan: #0891b2;
-  --uni-alert: #e11d48;
+  --uni-neon: #4d7c0f;
+  --uni-cyan: #0e7490;
+  --uni-alert: #dc2626;
 }
 
-body {
-  background-color: var(--uni-black);
-  color: var(--uni-text);
-  transition: background-color 0.3s, color 0.3s;
+/* ---------------------------------------------------------------------------
+   Typographic base.
+   Mono is the app's "chrome" (labels, counters, chips); Inter is used for text
+   people actually read.  Headings get balanced wrapping, paragraphs pretty
+   wrapping, and numerals in counters are tabular so they stop jittering.
+--------------------------------------------------------------------------- */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--uni-black);
+    color: var(--uni-text);
+    font-family: var(--font-sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.3s, color 0.3s;
+  }
+
+  /* Headings keep whatever face the component asks for (the display face is
+     opt-in via `font-display`); this only fixes wrapping and rhythm. */
+  h1, h2, h3, h4 {
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+
+  h1, h2 {
+    letter-spacing: -0.01em;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    background-color: var(--uni-neon);
+    color: var(--uni-black);
+  }
 }
 
-/* Custom scrollbar */
+@layer components {
+  /* Reading text: descriptions, comments, FAQ answers, help copy. */
+  .prose-read {
+    font-family: var(--font-sans);
+    line-height: 1.65;
+    letter-spacing: 0;
+    text-wrap: pretty;
+  }
+
+  /* Counters, scores, timestamps: fixed-width digits so they don't reflow. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom scrollbar (flat colours, no gradients) */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -77,7 +182,7 @@ body {
   background: var(--uni-dark);
 }
 ::-webkit-scrollbar-thumb {
-  background: #333;
+  background: #3f3f46;
   border: 1px solid var(--uni-black);
 }
 ::-webkit-scrollbar-thumb:hover {

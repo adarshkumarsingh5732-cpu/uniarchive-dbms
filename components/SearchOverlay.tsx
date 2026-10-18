@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Search, Command, Zap, ArrowRight, Hash, BookOpen, User } from 'lucide-react';
 import { AVAILABLE_TOPICS } from '../constants';
 import { Resource } from '../types';
@@ -8,14 +8,15 @@ interface Props {
   onClose: () => void;
   onSelectResource: (id: string) => void;
   onSelectSubject: (code: string) => void;
+  /** The already-loaded catalogue: search filters it in memory (see Dashboard). */
+  catalogue: Resource[];
 }
 
-export const SearchOverlay: React.FC<Props> = ({ onClose, onSelectResource, onSelectSubject }) => {
+export const SearchOverlay: React.FC<Props> = ({ onClose, onSelectResource, onSelectSubject, catalogue }) => {
   const [query, setQuery] = useState('');
   const [aiMode, setAiMode] = useState(false);
   const [aiResponse, setAiResponse] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [results, setResults] = useState<Resource[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -32,24 +33,20 @@ export const SearchOverlay: React.FC<Props> = ({ onClose, onSelectResource, onSe
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  // Live search against the API (debounced), instead of the old local mock array.
-  useEffect(() => {
-    const term = query.trim();
-    if (!term) {
-      setResults([]);
-      return;
-    }
-    const timeoutId = setTimeout(async () => {
-      try {
-        const data = await api.getResources({ search: term });
-        setResults(data);
-      } catch (err) {
-        console.error('Search failed:', err);
-        setResults([]);
-      }
-    }, 200);
-    return () => clearTimeout(timeoutId);
-  }, [query]);
+  // Live search over the in-memory catalogue: same match rules as the API's
+  // `?search=` (title, course code, professor, topics), but with no round trip
+  // per keystroke — results appear as you type instead of after a debounce.
+  const results = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return [];
+
+    return catalogue.filter(r =>
+      r.title.toLowerCase().includes(term) ||
+      r.courseCode.toLowerCase().includes(term) ||
+      (r.professor ?? '').toLowerCase().includes(term) ||
+      r.topics.some(topic => topic.toLowerCase().includes(term))
+    );
+  }, [catalogue, query]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,7 +129,7 @@ export const SearchOverlay: React.FC<Props> = ({ onClose, onSelectResource, onSe
               {aiResponse && (
                 <div className="prose prose-invert prose-sm">
                   <h4 className="text-uni-neon font-bold mb-2 uppercase text-xs">AI Response</h4>
-                  <p className="text-uni-contrast leading-relaxed">{aiResponse}</p>
+                  <p className="prose-read text-uni-contrast">{aiResponse}</p>
                 </div>
               )}
             </div>
@@ -184,7 +181,7 @@ export const SearchOverlay: React.FC<Props> = ({ onClose, onSelectResource, onSe
 
                   {filteredSubjects.length === 0 && filteredResources.length === 0 && (
                     <div className="text-center py-12 text-uni-muted">
-                      <p>No matches found.</p>
+                      <p className="prose-read">No matches found.</p>
                     </div>
                   )}
                 </div>

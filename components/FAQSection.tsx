@@ -22,14 +22,14 @@ export const FAQSection: React.FC = () => {
               onClick={() => toggle(idx)}
               className="w-full flex justify-between items-center text-left focus:outline-none group"
             >
-              <span className={`font-display font-semibold text-sm uppercase transition-colors ${openIndex === idx ? 'text-uni-neon' : 'text-uni-contrast group-hover:text-uni-neon'}`}>
+              <span className={`font-display font-semibold text-xs sm:text-sm uppercase tracking-tight transition-colors ${openIndex === idx ? 'text-uni-neon' : 'text-uni-contrast group-hover:text-uni-neon'}`}>
                 {item.question}
               </span>
-              {openIndex === idx ? <ChevronUp size={16} className="text-uni-neon" /> : <ChevronDown size={16} className="text-uni-muted group-hover:text-uni-neon" />}
+              {openIndex === idx ? <ChevronUp size={16} className="text-uni-neon shrink-0" /> : <ChevronDown size={16} className="text-uni-muted group-hover:text-uni-neon shrink-0" />}
             </button>
             
             {openIndex === idx && (
-              <div className="mt-3 text-sm font-mono text-uni-muted animate-in fade-in slide-in-from-top-1 duration-200">
+              <div className="mt-3 prose-read text-sm text-uni-muted animate-in fade-in slide-in-from-top-1 duration-200">
                 <p>{item.answer}</p>
               </div>
             )}

@@ -36,14 +36,14 @@ export const ResourceCard: React.FC<Props> = ({ resource }) => {
             {resource.type}
           </span>
         </div>
-        <div className="shrink-0 text-xs font-bold font-mono px-2 py-1 text-uni-neon bg-uni-neon/5 border border-uni-neon/20">
+        <div className="tabular shrink-0 text-xs font-bold font-mono px-2 py-1 text-uni-neon bg-uni-neon/5 border border-uni-neon/20">
           QS: {resource.qualityScore}
         </div>
       </div>
 
       {/* Main Content */}
       <div className="flex-1 mb-4">
-        <h3 className="text-uni-contrast font-display font-semibold text-lg leading-tight mb-2 group-hover:text-uni-neon transition-colors line-clamp-2">
+        <h3 className="text-uni-contrast font-display font-semibold text-base sm:text-lg leading-snug tracking-tight mb-2 group-hover:text-uni-neon transition-colors line-clamp-2">
           {resource.title}
         </h3>
 
@@ -55,13 +55,13 @@ export const ResourceCard: React.FC<Props> = ({ resource }) => {
           ))}
         </div>
         
-        <p className="text-sm font-mono text-uni-muted italic line-clamp-2 border-l-2 border-uni-border pl-2 group-hover:border-uni-neon transition-colors">
-          "{resource.description}"
+        <p className="prose-read text-sm text-uni-muted line-clamp-2 border-l-2 border-uni-border pl-2 group-hover:border-uni-neon transition-colors">
+          {resource.description}
         </p>
       </div>
 
       {/* Metrics Row */}
-      <div className="flex items-center gap-4 mb-4 text-xs font-mono text-uni-muted border-t border-uni-border pt-3">
+      <div className="tabular flex items-center gap-4 mb-4 text-xs font-mono text-uni-muted border-t border-uni-border pt-3">
         <div className="flex items-center gap-1.5 hover:text-uni-contrast transition-colors">
           <ThumbsUp size={14} className={resource.upvotes > 100 ? "text-uni-neon" : ""} />
           <span>{resource.upvotes}</span>

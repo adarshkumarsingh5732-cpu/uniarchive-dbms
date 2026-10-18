@@ -24,7 +24,7 @@ export const Library: React.FC<Props> = ({
     <div className="animate-in fade-in duration-500 max-w-7xl mx-auto px-6 pt-6">
       <header className="mb-10 pb-4 border-b border-uni-border">
          <h2 className="text-3xl font-display font-bold text-uni-contrast uppercase tracking-tight">My Library</h2>
-         <p className="text-uni-muted font-mono text-sm">Your personal collection and shortcuts.</p>
+         <p className="prose-read text-uni-muted text-sm">Your personal collection and shortcuts.</p>
       </header>
 
       {/* Pinned Subjects Section */}
@@ -58,7 +58,7 @@ export const Library: React.FC<Props> = ({
               ))}
            </div>
          ) : (
-           <div className="border border-dashed border-uni-border p-8 text-center text-uni-muted text-sm font-mono">
+           <div className="prose-read border border-dashed border-uni-border p-8 text-center text-uni-muted text-sm">
               Pin subjects from the discover page for quick access.
            </div>
          )}
@@ -89,7 +89,7 @@ export const Library: React.FC<Props> = ({
                ))}
             </div>
          ) : (
-            <div className="border border-dashed border-uni-border p-12 text-center text-uni-muted text-sm font-mono">
+            <div className="prose-read border border-dashed border-uni-border p-12 text-center text-uni-muted text-sm">
                No saved resources yet. Use the bookmark button on resources to add them here.
             </div>
          )}

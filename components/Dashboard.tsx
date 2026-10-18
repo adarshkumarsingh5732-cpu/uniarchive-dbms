@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useMemo, Suspense, lazy } from 'react';
 import { Resource, ViewMode, ResourceType, PinnedSubject, User, CourseStats } from '../types';
 import { ResourceCard } from './ResourceCard';
 import { Filter, Search, Plus, Grid, Layers, Zap, User as UserIcon, LogOut, Sun, Moon, Pin, Library as LibraryIcon } from 'lucide-react';
@@ -90,31 +90,30 @@ export const Dashboard: React.FC = () => {
 
   // --- DATA FETCHING ---
 
-  // Fetch Resources (Search & Filter)
+  // Fetch the catalogue once and filter it in memory.
+  //
+  // The API returns the whole catalogue for an unfiltered request anyway, and
+  // every filter/search used to be a debounced round trip through the Vercel
+  // rewrite to the backend — which is the slowest hop in the app.  Loading once
+  // makes typing and filter clicks instant and removes a request per keystroke.
   useEffect(() => {
+    let cancelled = false;
+
     const fetchResources = async () => {
       setIsLoading(true);
       try {
-        const data = await api.getResources({
-          type: selectedType,
-          slot: selectedSlot,
-          search: searchQuery
-        });
-        setResources(data);
+        const data = await api.getResources();
+        if (!cancelled) setResources(data);
       } catch (error) {
         console.error("Failed to load resources:", error);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
-    // Debounce search slightly
-    const timeoutId = setTimeout(() => {
-      fetchResources();
-    }, 300);
-
-    return () => clearTimeout(timeoutId);
-  }, [selectedType, selectedSlot, searchQuery]);
+    fetchResources();
+    return () => { cancelled = true; };
+  }, []);
 
   // Fetch Stats on Mount
   useEffect(() => {
@@ -130,9 +129,25 @@ export const Dashboard: React.FC = () => {
     fetchStats();
   }, []);
 
-  // Reuse existing filteredResources variable name but point to state
-  // Since we filter on server, 'resources' is already 'filteredResources'
-  const filteredResources = resources;
+  // Mirrors the server's free-text match (title, course code, professor name,
+  // topic names) so local filtering behaves identically to `?search=`.  The SQL
+  // escapes LIKE wildcards, so a query is matched as a literal substring too.
+  const filteredResources = useMemo(() => {
+    const term = searchQuery.trim().toLowerCase();
+
+    return resources.filter(r => {
+      if (selectedType !== 'ALL' && r.type !== selectedType) return false;
+      if (selectedSlot !== 'ALL' && r.slot !== selectedSlot) return false;
+      if (!term) return true;
+
+      return (
+        r.title.toLowerCase().includes(term) ||
+        r.courseCode.toLowerCase().includes(term) ||
+        (r.professor ?? '').toLowerCase().includes(term) ||
+        r.topics.some(topic => topic.toLowerCase().includes(term))
+      );
+    });
+  }, [resources, selectedType, selectedSlot, searchQuery]);
 
   // Ticker / pinned numbers are derived from real data (no hardcoded placeholders).
   const resourceCountFor = (code: string) =>
@@ -265,8 +280,8 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="min-h-screen bg-uni-black text-uni-text font-mono selection:bg-uni-neon selection:text-uni-black transition-colors duration-300">
       {/* Structural Grid Background */}
-      <div className="fixed inset-0 z-0 pointer-events-none opacity-[0.05]" style={{
-        backgroundImage: 'linear-gradient(var(--uni-text) 1px, transparent 1px), linear-gradient(90deg, var(--uni-text) 1px, transparent 1px)',
+      <div className="fixed inset-0 z-0 pointer-events-none opacity-[0.06]" style={{
+        backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath d='M40 0H0V40' fill='none' stroke='%23a1a1aa' stroke-width='1'/%3E%3C/svg%3E\")",
         backgroundSize: '40px 40px'
       }}></div>
 
@@ -284,6 +299,7 @@ export const Dashboard: React.FC = () => {
             onClose={() => setIsSearchOpen(false)}
             onSelectResource={openResource}
             onSelectSubject={openSubject}
+            catalogue={resources}
           />
         )}
 
@@ -396,10 +412,10 @@ export const Dashboard: React.FC = () => {
           <div className="animate-in fade-in duration-500 px-6 md:px-12">
             {/* Hero Section */}
             <header className="mb-12 text-center md:text-left">
-              <h1 className="text-3xl md:text-6xl font-display font-bold text-uni-contrast mb-4 tracking-tight leading-none uppercase">
-                Break down <span className="text-transparent bg-clip-text bg-gradient-to-r from-uni-neon to-uni-cyan">note gatekeeps</span>.
+              <h1 className="text-[clamp(1.9rem,5.5vw,3.5rem)] font-display font-extrabold text-uni-contrast mb-4 tracking-[-0.02em] leading-[1] uppercase">
+                Break down <span className="text-uni-neon">note gatekeeps</span>.
               </h1>
-              <p className="text-uni-muted text-sm md:text-lg font-mono max-w-2xl border-l-2 border-uni-neon pl-4">
+              <p className="prose-read text-uni-muted text-sm md:text-base max-w-2xl border-l-2 border-uni-neon pl-4">
                 Discover high-quality resources from parallel slots and classes.
               </p>
             </header>
@@ -434,7 +450,7 @@ export const Dashboard: React.FC = () => {
               ].map((stat, i) => (
                 <div key={i} className="bg-uni-panel border border-uni-border p-4 flex flex-col justify-center hover:border-uni-neon transition-colors group">
                   <span className="text-[10px] text-uni-muted uppercase tracking-wider font-mono mb-1 group-hover:text-uni-neon transition-colors">{stat.label}</span>
-                  <span className={`text-xl md:text-2xl font-display font-bold ${stat.color} truncate`}>{stat.icon}{stat.value}</span>
+                  <span className={`tabular text-xl md:text-2xl font-display font-bold ${stat.color} truncate`}>{stat.icon}{stat.value}</span>
                 </div>
               ))}
             </div>
@@ -543,7 +559,7 @@ export const Dashboard: React.FC = () => {
                         <Layers size={32} className="text-uni-muted" />
                       </div>
                       <h3 className="text-lg font-display font-bold text-uni-contrast mb-2">NO DATA FOUND</h3>
-                      <p className="text-uni-muted text-xs font-mono max-w-xs mx-auto mb-6 uppercase">Adjust filters or search parameters</p>
+                      <p className="prose-read text-uni-muted text-sm max-w-xs mx-auto mb-6">Adjust the filters or search for something else.</p>
                       <button onClick={() => { setSearchQuery(''); setSelectedType('ALL'); setSelectedSlot('ALL') }} className="text-uni-neon text-xs font-mono font-bold hover:underline uppercase">Reset All Filters</button>
                     </div>
                   )}

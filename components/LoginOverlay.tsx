@@ -223,7 +223,7 @@ export const LoginOverlay: React.FC<Props> = ({ onClose, onLogin }) => {
                 {isLoading ? 'Creating account...' : 'Create account'} <ArrowRight size={16} />
               </button>
 
-              <p className="text-center text-uni-muted text-[10px] font-mono uppercase">
+              <p className="prose-read text-center text-uni-muted text-[11px]">
                 No email verification needed — your account works right away.
               </p>
             </form>
@@ -277,13 +277,17 @@ export const LoginOverlay: React.FC<Props> = ({ onClose, onLogin }) => {
             </form>
           )}
 
-          <p className="mt-5 text-center text-uni-muted text-[10px] font-mono uppercase">
+          <p className="prose-read mt-5 text-center text-uni-muted text-[11px]">
             {isSignup ? 'Already have an account? Use the Sign in tab.' : 'New here? Use the Create account tab.'}
           </p>
         </div>
 
-        {/* Footer decoration */}
-        <div className="h-1 w-full bg-gradient-to-r from-uni-neon via-uni-cyan to-uni-alert"></div>
+        {/* Footer decoration: flat accent blocks, no gradient */}
+        <div className="h-1 w-full flex">
+          <div className="h-full flex-1 bg-uni-neon"></div>
+          <div className="h-full flex-1 bg-uni-cyan"></div>
+          <div className="h-full flex-1 bg-uni-alert"></div>
+        </div>
       </div>
     </div>
   );

@@ -15,6 +15,22 @@ interface Props {
 export const SubjectDetail: React.FC<Props> = ({ subjectCode, resources, stats, onBack }) => {
   const subjectResources = resources.filter(r => r.courseCode === subjectCode);
 
+  // Derived from the data instead of hardcoded placeholders: unique uploaders,
+  // a qualitative activity band from the real 30-day window, and the top
+  // uploaders for this course.
+  const contributors = new Set(subjectResources.map(r => r.author)).size;
+  const recentActivity = stats?.activityGrid
+    ? stats.activityGrid.slice(-30).reduce((total, day) => total + day, 0)
+    : null;
+  const activityLabel =
+    recentActivity === null ? '—' : recentActivity > 40 ? 'High' : recentActivity > 10 ? 'Steady' : 'Quiet';
+
+  const topContributors = [...subjectResources
+    .reduce((counts, r) => counts.set(r.author, (counts.get(r.author) ?? 0) + 1), new Map<string, number>())
+    .entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <button 
@@ -35,22 +51,22 @@ export const SubjectDetail: React.FC<Props> = ({ subjectCode, resources, stats, 
              <span className="px-2 py-1 bg-uni-neon text-uni-black font-bold font-mono text-xs rounded-sm">COURSE CODE</span>
           </div>
           <h1 className="text-3xl sm:text-5xl font-display font-bold text-uni-contrast mb-4 break-words">{subjectCode}</h1>
-          <p className="text-uni-muted max-w-2xl font-mono text-xs sm:text-sm">
+          <p className="prose-read text-uni-muted max-w-2xl text-xs sm:text-sm">
             Centralized repository for {subjectCode}. Access community verified notes, question banks, and solutions from parallel slots.
           </p>
 
-          <div className="flex flex-wrap gap-4 sm:gap-6 mt-6 sm:mt-8 font-mono text-xs">
+          <div className="tabular flex flex-wrap gap-4 sm:gap-6 mt-6 sm:mt-8 font-mono text-xs">
              <div className="flex items-center gap-2 text-uni-contrast">
                 <FileText size={16} className="text-uni-cyan" />
                 <span className="font-bold">{subjectResources.length}</span> Resources
              </div>
              <div className="flex items-center gap-2 text-uni-contrast">
                 <Users size={16} className="text-uni-neon" />
-                <span className="font-bold">120+</span> Contributors
+                <span className="font-bold">{contributors}</span> {contributors === 1 ? 'Contributor' : 'Contributors'}
              </div>
              <div className="flex items-center gap-2 text-uni-contrast">
                 <Activity size={16} className="text-uni-alert" />
-                <span className="font-bold">High</span> Activity
+                <span className="font-bold">{activityLabel}</span> Activity
              </div>
           </div>
         </div>
@@ -58,7 +74,7 @@ export const SubjectDetail: React.FC<Props> = ({ subjectCode, resources, stats, 
       
       {/* Activity Grid (GitHub Style) */}
       <div className="mb-8 bg-uni-panel border border-uni-border p-4 sm:p-6">
-        <h3 className="font-bold text-uni-contrast text-sm uppercase mb-4">Contribution Activity</h3>
+        <h3 className="font-bold text-uni-contrast text-sm uppercase tracking-tight mb-4">Contribution Activity</h3>
         <ContributionGrid data={stats?.activityGrid} />
       </div>
 
@@ -77,8 +93,8 @@ export const SubjectDetail: React.FC<Props> = ({ subjectCode, resources, stats, 
                </div>
             ))}
             {subjectResources.length === 0 && (
-              <div className="col-span-full py-12 text-center text-uni-muted border border-dashed border-uni-border bg-uni-panel/50">
-                No resources found for this subject yet.
+              <div className="prose-read col-span-full py-12 px-4 text-center text-uni-muted border border-dashed border-uni-border bg-uni-panel/50">
+                No resources found for this subject yet. Be the first to contribute.
               </div>
             )}
           </div>
@@ -95,17 +111,21 @@ export const SubjectDetail: React.FC<Props> = ({ subjectCode, resources, stats, 
            
            <div className="bg-uni-panel border border-uni-border p-6">
              <h3 className="font-bold text-uni-contrast text-sm uppercase mb-4">Top Contributors</h3>
-             <ul className="space-y-4">
-               {['stat_god_99', 'math_wizard', 'topper_supreme'].map((user, i) => (
-                 <li key={user} className="flex items-center justify-between font-mono text-xs">
-                   <div className="flex items-center gap-2">
-                     <span className={`w-5 h-5 flex items-center justify-center rounded-full ${i===0 ? 'bg-uni-neon text-uni-black' : 'bg-uni-border text-uni-muted'}`}>{i+1}</span>
-                     <span className="text-uni-contrast hover:text-uni-cyan cursor-pointer transition-colors">{user}</span>
-                   </div>
-                   <span className="text-uni-muted">{500 - (i*50)} pts</span>
-                 </li>
-               ))}
-             </ul>
+             {topContributors.length > 0 ? (
+               <ul className="space-y-4">
+                 {topContributors.map(([author, count], i) => (
+                   <li key={author} className="flex items-center justify-between gap-3 font-mono text-xs">
+                     <div className="flex items-center gap-2 min-w-0">
+                       <span className={`w-5 h-5 shrink-0 flex items-center justify-center rounded-full ${i === 0 ? 'bg-uni-neon text-uni-black' : 'bg-uni-border text-uni-muted'}`}>{i + 1}</span>
+                       <span className="text-uni-contrast truncate">{author}</span>
+                     </div>
+                     <span className="tabular shrink-0 text-uni-muted">{count} res</span>
+                   </li>
+                 ))}
+               </ul>
+             ) : (
+               <p className="prose-read text-xs text-uni-muted">No contributions yet for this course.</p>
+             )}
            </div>
         </div>
       </div>

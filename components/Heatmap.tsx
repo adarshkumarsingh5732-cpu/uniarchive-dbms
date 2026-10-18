@@ -12,29 +12,32 @@ export const Heatmap: React.FC<Props> = ({ stats }) => {
       
       <div className="flex justify-between items-end mb-5">
         <div>
-           <h3 className="text-base font-display font-bold text-white uppercase tracking-wide">
+           <h3 className="text-base font-display font-bold text-uni-contrast uppercase tracking-tight">
              {stats.courseCode}
            </h3>
-           <span className="text-xs text-uni-neon font-mono mt-0.5 block opacity-70">TOPIC MATRIX</span>
+           <span className="text-[11px] text-uni-neon font-mono mt-0.5 block tracking-[0.14em]">TOPIC MATRIX</span>
         </div>
-        <div className="font-mono text-[10px] text-right text-uni-muted">
-          RESOURCES<br/>
-          <span className="text-lg text-white font-bold">{stats.totalResources}</span>
+        <div className="font-mono text-[10px] text-right text-uni-muted uppercase tracking-[0.1em]">
+          Resources<br/>
+          <span className="tabular text-lg text-uni-contrast font-bold">{stats.totalResources}</span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3">
         {stats.topicCoverage.map((item, idx) => (
           <div key={idx} className="group cursor-default">
-            <div className="flex justify-between text-xs font-mono text-uni-muted mb-1.5">
-              <span>{item.topic}</span>
-              <span className="group-hover:text-uni-neon transition-colors">{item.coverage}%</span>
+            <div className="flex justify-between gap-3 text-xs font-mono text-uni-muted mb-1.5">
+              <span className="truncate">{item.topic}</span>
+              <span className="tabular group-hover:text-uni-neon transition-colors">{item.coverage}%</span>
             </div>
             <div className="h-2 bg-uni-black w-full overflow-hidden border border-uni-border relative">
-               {/* Pattern Background */}
-              <div 
-                className="absolute inset-0 opacity-20" 
-                style={{backgroundImage: 'radial-gradient(#fff 1px, transparent 0)', backgroundSize: '2px 2px'}} 
+               {/* Flat dot texture (SVG pattern, no gradient) */}
+              <div
+                className="absolute inset-0 opacity-20"
+                style={{
+                  backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3Crect width='1' height='1' fill='%23a1a1aa'/%3E%3C/svg%3E\")",
+                  backgroundSize: '2px 2px'
+                }}
               />
               <div 
                 className={`h-full transition-all duration-1000 ease-out ${

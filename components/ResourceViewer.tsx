@@ -135,7 +135,7 @@ export const ResourceViewer: React.FC<Props> = ({ resource, onBack, isSaved = fa
               <span className="text-uni-muted">{resource.type}</span>
               <div className="flex items-center gap-1 ml-2 text-uni-muted">
                 <Eye size={10} />
-                <span>{resource.views.toLocaleString()}</span>
+                <span className="tabular">{resource.views.toLocaleString()}</span>
               </div>
             </div>
             <h1 className="text-uni-contrast font-display font-bold text-sm sm:text-lg leading-tight truncate">{resource.title}</h1>
@@ -249,8 +249,8 @@ export const ResourceViewer: React.FC<Props> = ({ resource, onBack, isSaved = fa
                 <button className="text-uni-muted hover:text-uni-alert"><ThumbsDown size={14} /></button>
               </div>
             </div>
-            <p className="text-xs text-uni-muted font-mono italic p-3 bg-uni-black border border-uni-border rounded">
-              "{resource.description}"
+            <p className="prose-read text-xs text-uni-muted p-3 bg-uni-black border border-uni-border rounded">
+              {resource.description}
             </p>
             {resource.professor && (
               <div className="mt-3 text-xs text-uni-cyan font-mono flex items-center gap-2">
@@ -278,9 +278,9 @@ export const ResourceViewer: React.FC<Props> = ({ resource, onBack, isSaved = fa
                       {comment.author}
                     </span>
                     {comment.isOp && <span className="text-[9px] bg-uni-neon/20 text-uni-neon px-1 rounded">OP</span>}
-                    <span className="text-[10px] text-uni-muted">{comment.timestamp}</span>
+                    <span className="tabular text-[10px] text-uni-muted">{comment.timestamp}</span>
                   </div>
-                  <p className="text-xs text-uni-text leading-relaxed">{comment.text}</p>
+                  <p className="prose-read text-xs text-uni-text">{comment.text}</p>
                   <div className="flex gap-3 mt-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                     <button className="text-[10px] font-bold text-uni-muted hover:text-uni-contrast">Reply</button>
                     <button className="text-[10px] font-bold text-uni-muted hover:text-uni-contrast">Report</button>

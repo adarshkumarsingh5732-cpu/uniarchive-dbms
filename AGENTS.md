@@ -46,6 +46,8 @@ index.css               Tailwind entry + @theme tokens + runtime palette
 services/api.ts         the ONLY place the frontend talks to the API
 types.ts                shared frontend types == API contract
 docs/case-study.md      the DBMS case study (all 11 required stages)
+docs/improvements.md    prioritised improvement audit (measured numbers + backlog)
+public/fonts/           self-hosted latin-subset woff2 (no Google Fonts)
 ```
 
 `Resource.id` is a **string** on the wire (matches `types.ts` and the route
@@ -185,6 +187,34 @@ param). Keep it that way — the repository casts the integer PK with `String()`
     vertically with the PDF pane at `60vh` instead of `h-1/2`.
   - `SubjectDetail`/`Analytics`/`ResourceCard` headers wrap instead of
     overflowing; `main` reserves `pb-24` for the bottom nav.
+
+**Design + performance pass (2026-10-18, third session):**
+- **Gradients are gone everywhere** (hero headline, login modal strip, page grid
+  overlay, heatmap bar texture). The grid overlay and dot texture are now flat
+  `url(data:image/svg+xml,…)` patterns. Verified with computed styles on all
+  five routes: no element has `gradient` in `background-image`.
+- **Fonts are self-hosted** (`public/fonts`, latin subset, woff2) — zero
+  third-party origins per load, no render-blocking Google Fonts stylesheet, and
+  the Wikimedia 768px favicon was replaced by an inline SVG data URI.
+  `/assets/*` and `/fonts/*` now send `max-age=31536000, immutable` (previously
+  `max-age=0, must-revalidate`). Local cold A/B (old vs new bundle, same origin):
+  **FCP 220 ms → 88 ms**, first-paint 163 ms → 31 ms, third-party origins 2 → 0.
+  Cold transfer went 99 kB → 206 kB because the webfonts now actually render
+  (the old stack declared Inter but every element inherited `font-mono`, so only
+  4 of 7 faces ever loaded).
+- **Typography roles are explicit:** Unbounded = display/headings, Inter =
+  reading text (`.prose-read`), JetBrains Mono = UI chrome; `.tabular` for
+  numerals; fluid hero size via `clamp()`; `text-wrap: balance/pretty`.
+- **Filtering is client-side:** the catalogue is fetched once and filtered in
+  memory (mirrors the repository's `LIKE` match). Measured: a filter click and a
+  search keystroke now cause **0 API requests** (previously one debounced
+  request each).
+- Deleted the dead `services/geminiService.ts` and the `define` block that
+  inlined `GEMINI_API_KEY` into the browser bundle. `SubjectDetail`'s fake
+  "120+ Contributors" / "500 pts" placeholders are now derived from the data.
+- Measured remaining bottleneck: production `/api` goes Vercel → cloudflared
+  tunnel → this machine, so `/api/resources` costs **0.21–1.05 s** vs **4 ms**
+  locally. `docs/improvements.md` lists that and the rest of the backlog.
 
 **Not done / optional** (see §9): dedicated DB user, rendered ER image,
 fixing the broken SMTP/NVIDIA keys, a stable (non-ephemeral) tunnel URL.
@@ -335,6 +365,25 @@ npm install && npm run dev   # Vite, port 3000
 - `resources.upvotes/downloads/views` are **intentional** denormalized counters
   (documented in `docs/case-study.md`). Don't "normalize" them away without
   updating the case study.
+- **Never re-add a Google Fonts `<link>`.** Fonts live in `public/fonts` as
+  latin-subset woff2 with `@font-face` rules in `index.css`; only faces the UI
+  uses are shipped (Inter 400/600, JetBrains Mono 400/700, Unbounded 600/800).
+  To change weights, download the new latin subset, add the `@font-face`, and
+  preload it in `index.html` if it is above the fold. A weight that is declared
+  but not shipped makes the browser snap to the nearest shipped weight.
+- **Keep the visual system flat.** No `bg-gradient-*` / `radial-gradient` etc.;
+  the grid overlay and heatmap texture are data-URI SVG patterns in
+  `Dashboard.tsx` / `Heatmap.tsx`. Accent strips are flat block stacks.
+- **Three type roles, don't mix them:** `font-display` (Unbounded) for headings,
+  `.prose-read` (Inter) for anything a person reads, `font-mono` (JetBrains) for
+  labels/counters/chips, `.tabular` on numeric counters.
+- **Filtering happens in the browser.** `Dashboard` fetches the catalogue once
+  and filters locally (same rules as the repository's `LIKE` match, including
+  title / course code / professor / topics); `SearchOverlay` filters the
+  catalogue it is passed. Re-introducing server-side filters means updating both
+  sides or search silently diverges.
+- **Cache headers live in `vercel.json`** (`/assets/*`, `/fonts/*` → immutable).
+  An asset directory with content hashes should be added there too.
 - **The demo password is trivial** (`scse`, legacy unsalted SHA-256). Anyone
   with the demo credential can log in. Real signups use salted scrypt, but
   there is still no rate limiting, sessions or email verification — demo-grade.
@@ -375,6 +424,10 @@ add suppressions to make checks pass.
 - [x] Demo password login without SMTP (`POST /api/auth/login`, admin123/scse).
 - [x] Normal account signup without SMTP (`POST /api/auth/signup`, scrypt
       hashes, signup tab in `LoginOverlay`) + mobile layout pass.
+- [x] Flat design pass (no gradients), self-hosted fonts, typography rework,
+      immutable asset caching, client-side filtering. See `docs/improvements.md`.
+- [ ] Replace the ephemeral tunnel with a stable URL / managed MySQL, and give
+      uploads + comments a server-side identity (P0 in `docs/improvements.md`).
 - [x] Collapse seed to a single demo user + fix seed FK/author bugs.
 - [x] Import Cloudinary/SMTP/NVIDIA keys from the downloaded copy (Cloudinary
       works; SMTP + NVIDIA keys are bad and need regeneration).
@@ -416,5 +469,6 @@ add suppressions to make checks pass.
 | 2026-10-09 | PDF preview + dev-server fixes: added `GET /api/resources/:id/preview` (inline disposition + magic-byte content sniffing + `no-store`) and pointed `ResourceViewer` at it — uploads were downloading instead of rendering because Cloudinary serves `raw` PDFs as `attachment`/`octet-stream`. Fixed the `tsx watch` SIGTERM respawn loop in `server/src/app.ts` and parsed `PORT` as a number. `LoginOverlay` now authenticates with the username (`admin123`), not the email. Vite's `/api` proxy targets 5001 to match the local `.env`. Superseded the `.env` work below. |
 | 2026-10-07 | Demo password login (branch `feature/demo-login`, commit `f71895e`): added `POST /api/auth/login` (admin123/scse, SHA-256 password, demo-only), rewrote `LoginOverlay` to a single email+password form, fenced OTP endpoints behind `smtpReady()` (503 when SMTP absent), added `password_hash` to `users`, collapsed seed to one user, and fixed two seed bugs that made `db:reset` import 0–1 resources (FK-checks-off-through-data-load + all resources use author_id=1). Imported Cloudinary/SMTP/NVIDIA keys from `downloads/random shi/uniarchive/server/.env` into `server/.env` (gitignored). Verified Cloudinary works; SMTP (535 5.7.8) and NVIDIA (JSON parse error on Bearer) keys are bad and need regeneration. |
 | 2026-10-09 | Vercel **services-mode** config (confirmed with user): root `vercel.json` defines `frontend` (Vite, root `.`, output `dist`) + `backend` (Express, root `server/`, entrypoint `dist/app.js`), top-level rewrites host `api.*`→`backend`, then `/api/(.*)`→`backend`, then catch-all→`frontend`, plus a service-scoped `/(.*)→/index.html` SPA fallback; CORS headers kept top-level. Removed legacy `api/index.ts` + `api/ping.ts`. No bindings (browser→API is same-origin public; API→Cloudinary/AI/SMTP are external). Verified: schema-valid against openapi.vercel.sh, both service builds green, route checks under `npx vercel dev -L`. |
+| 2026-10-18 | Design + speed pass: removed every gradient (hero/login/grid overlay/heatmap texture → flat colours + SVG patterns), self-hosted the three font families as latin-subset woff2 (zero third-party origins, no render-blocking stylesheet, inline SVG favicon, preloaded above-the-fold faces), reworked typography (Unbounded display / Inter reading text / JetBrains Mono chrome, fluid hero `clamp()`, `text-wrap: balance|pretty`, `.tabular` numerals, higher-contrast dark palette), added `immutable` cache headers for `/assets` + `/fonts`, deleted dead `geminiService` + the inlined `GEMINI_API_KEY` define, replaced the debounced per-keystroke API calls with in-memory filtering/search (0 requests per filter click or keystroke), and derived `SubjectDetail`'s placeholder contributor numbers from real data. Measured cold A/B: FCP 220 → 88 ms, first paint 163 → 31 ms, third-party origins 2 → 0. Wrote `docs/improvements.md` (measured audit + prioritised backlog). |
 | 2026-10-18 | Signup + mobile pass. Added `POST /api/auth/signup` (normal account, no SMTP) with scrypt password hashing (`hashPassword`/`verifyPassword`, legacy SHA-256 still accepted); 400/409 validation and duplicate handling. `LoginOverlay` became a Sign in / Create account tabbed modal with `api.signup`. Tests grew 29 → 37 (signup contract, duplicate/validation rejection, scrypt-not-plaintext, legacy demo login) and all pass. Fixed phone layouts: navbar overflow, filter sheet `w-64`→`w-full`, overlays `z-[70]` above `MobileNav`, touch-invisible hover-only controls, ResourceViewer PDF/discussion split. Verified at 320/360/390px in headless Chrome (`scrollWidth === clientWidth` everywhere) plus an end-to-end UI signup, then `vercel deploy --prod`. |
 | 2026-10-18 | **Deployed: https://uniarchive.vercel.app** (project `uniarchive`, CLI-linked via `.vercel/`). Architecture changed from services-mode: root `vercel.json` is now a plain static frontend (Vite → `dist`) whose `/api/(.*)` rewrite proxies to the backend **running on the local machine** through an outbound Cloudflare quick tunnel — no inbound ports, local MariaDB never exposed (user's device-safety requirement). Tunnel: `cloudflared tunnel --url http://localhost:5001` (binary at `~/bin/cloudflared`, log `/tmp/ua_tunnel.log`); the `trycloudflare.com` URL is **ephemeral** — if it changes, update the rewrite in `vercel.json` and `vercel deploy --prod`. Backend+frontend dev processes: `/tmp/uniarchive-server.log`, `/tmp/uniarchive-frontend.log`. Services-mode `backend` service, its CORS headers and the `api.*` host rule were removed (backend is now cross-origin proxy target, same-origin to the browser). `vercel curl` warns "Deployment Protection on" but production is publicly readable (verified anon: `/`, `/library`, `/api/health`, `/api/resources`). Pushed `feature/demo-login` (036153f). |

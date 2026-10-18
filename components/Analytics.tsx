@@ -22,7 +22,7 @@ export const Analytics: React.FC<Props> = ({ courseStats, topSlots, isLoading = 
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 mb-8 border-b border-uni-border pb-4">
         <div>
           <h2 className="text-2xl sm:text-3xl font-display font-bold text-uni-contrast uppercase tracking-tight">System Analytics</h2>
-          <p className="text-uni-muted font-mono text-sm">Knowledge flow metrics</p>
+          <p className="prose-read text-uni-muted text-sm">Knowledge flow metrics</p>
         </div>
         <div className="flex gap-2 shrink-0">
           {['7 DAYS', '30 DAYS', 'ALL TIME'].map(range => (

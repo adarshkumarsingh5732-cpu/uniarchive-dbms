@@ -16,7 +16,7 @@ export const Footer: React.FC = () => {
                 </div>
                 <span className="text-lg font-display font-bold text-uni-contrast">UNIARCHIVES</span>
              </div>
-             <p className="text-uni-muted text-sm font-mono max-w-sm mb-6">
+             <p className="prose-read text-uni-muted text-sm max-w-sm mb-6">
                Open-source academic resource commons. Breaking down knowledge silos one slot at a time.
              </p>
              <div className="flex gap-4">
@@ -61,7 +61,7 @@ export const Footer: React.FC = () => {
           </div>
         </div>
 
-        <div className="border-t border-uni-border mt-12 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-[10px] font-mono text-uni-muted uppercase">
+        <div className="border-t border-uni-border mt-12 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-[11px] font-mono text-uni-muted uppercase tracking-[0.08em]">
            <p>© {new Date().getFullYear()} UniArchives Open Collective.</p>
            <p>Not affiliated with VIT.</p>
         </div>

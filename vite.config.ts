@@ -32,10 +32,9 @@ export default defineConfig(({ mode }) => {
         },
       },
       plugins: [react(), tailwindcss()],
-      define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
-      },
+      // No `define` block: the old GEMINI_API_KEY substitution belonged to the
+      // removed client-side geminiService. AI chat goes through the backend
+      // (/api/ai/ask), so no key is inlined into the browser bundle.
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),
