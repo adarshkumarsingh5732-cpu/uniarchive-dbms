@@ -6,7 +6,7 @@ Write-Host "         UniArchive Live Project Demo              " -ForegroundColo
 Write-Host "===================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Ensure any previous lingering processes on port 5001 or old cloudflared instances are cleared
+# Ensure any previous lingering processes on port 5001 or old tunnels are cleared
 Get-NetTCPConnection -LocalPort 5001 -ErrorAction SilentlyContinue | ForEach-Object {
     Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
 }
@@ -35,7 +35,7 @@ Pop-Location
 $serverProcess = Start-Process node -ArgumentList 'dist/app.js' -WorkingDirectory $serverPath -PassThru -NoNewWindow
 Start-Sleep -Seconds 3
 
-# Verify health
+# Verify local backend health
 try {
     $res = Invoke-RestMethod -Uri "http://localhost:5001/api/health" -TimeoutSec 4
     Write-Host "      [OK] Backend connected to database: $($res.dbState)" -ForegroundColor Green
@@ -44,33 +44,56 @@ try {
 }
 Write-Host ""
 
-# 3. Start Cloudflare Tunnel
+# 3. Start Public Tunnel (using native OpenSSH localhost.run with cloudflared fallback)
 Write-Host "[3/5] Starting Secure Public Tunnel..." -ForegroundColor Yellow
-$cfBinary = "$env:USERPROFILE\bin\cloudflared.exe"
-if (-not (Test-Path $cfBinary)) {
-    Write-Host "      Downloading portable cloudflared..." -ForegroundColor Gray
-    Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile $cfBinary
-}
 
 $tunnelLog = "$env:TEMP\ua_tunnel.log"
 Remove-Item $tunnelLog -ErrorAction SilentlyContinue
 
-$tunnelProcess = Start-Process $cfBinary -ArgumentList "tunnel --url http://localhost:5001" -RedirectStandardError $tunnelLog -PassThru -NoNewWindow
-
 $tunnelUrl = $null
-for ($i = 0; $i -lt 20; $i++) {
+$tunnelProcess = $null
+
+# First try OpenSSH localhost.run (reliable global DNS, no NXDOMAIN drops)
+Write-Host "      Establishing secure internet bridge..." -ForegroundColor Gray
+$tunnelProcess = Start-Process ssh -ArgumentList "-o StrictHostKeyChecking=no -R 80:localhost:5001 nokey@localhost.run" -RedirectStandardOutput $tunnelLog -RedirectStandardError "$env:TEMP\ua_tunnel_err.log" -PassThru -NoNewWindow
+
+for ($i = 0; $i -lt 15; $i++) {
     Start-Sleep -Seconds 1
     if (Test-Path $tunnelLog) {
-        $match = Select-String -Path $tunnelLog -Pattern "https://[a-zA-Z0-9-]+\.trycloudflare\.com"
-        if ($match) {
-            $tunnelUrl = $match.Matches[0].Value
+        $content = Get-Content $tunnelLog -Raw
+        $match = [regex]::Match($content, 'https://[a-zA-Z0-9-]+\.lhr\.life')
+        if ($match.Success) {
+            $tunnelUrl = $match.Value
             break
         }
     }
 }
 
+# Fallback to Cloudflare tunnel if needed
 if (-not $tunnelUrl) {
-    Write-Host "      [ERROR] Could not establish tunnel." -ForegroundColor Red
+    Write-Host "      Falling back to Cloudflare tunnel..." -ForegroundColor Gray
+    if ($tunnelProcess) { Stop-Process -Id $tunnelProcess.Id -Force -ErrorAction SilentlyContinue }
+    $cfBinary = "$env:USERPROFILE\bin\cloudflared.exe"
+    if (-not (Test-Path $cfBinary)) {
+        Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile $cfBinary
+    }
+    Remove-Item $tunnelLog -ErrorAction SilentlyContinue
+    $tunnelProcess = Start-Process $cfBinary -ArgumentList "tunnel --url http://localhost:5001" -RedirectStandardError $tunnelLog -PassThru -NoNewWindow
+    for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Seconds 1
+        if (Test-Path $tunnelLog) {
+            $content = Get-Content $tunnelLog -Raw
+            $match = [regex]::Match($content, 'https://[a-zA-Z0-9-]+\.trycloudflare\.com')
+            if ($match.Success) {
+                $tunnelUrl = $match.Value
+                break
+            }
+        }
+    }
+}
+
+if (-not $tunnelUrl) {
+    Write-Host "      [ERROR] Could not establish public tunnel." -ForegroundColor Red
     if ($serverProcess) { Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue }
     exit 1
 }
@@ -82,7 +105,7 @@ Write-Host ""
 Write-Host "[4/5] Syncing with uniarchive.vercel.app..." -ForegroundColor Yellow
 $vercelJsonPath = "$rootPath\vercel.json"
 $vercelConfig = Get-Content $vercelJsonPath -Raw
-$newConfig = $vercelConfig -replace 'https://[a-zA-Z0-9-]+\.(trycloudflare\.com|loca\.lt)', $tunnelUrl
+$newConfig = $vercelConfig -replace 'https://[a-zA-Z0-9-]+\.(trycloudflare\.com|loca\.lt|lhr\.life)', $tunnelUrl
 Set-Content -Path $vercelJsonPath -Value $newConfig
 
 Write-Host "      Updating Vercel production bridge (takes ~15 seconds)..." -ForegroundColor Gray
@@ -96,8 +119,8 @@ $liveOk = $false
 for ($attempt = 0; $attempt -lt 12; $attempt++) {
     Start-Sleep -Seconds 2
     try {
-        $liveCheck = Invoke-RestMethod -Uri "https://uniarchive.vercel.app/api/health" -TimeoutSec 4
-        if ($liveCheck.dbState -or $liveCheck.status -eq 'ok') {
+        $liveCheck = Invoke-RestMethod -Uri "https://uniarchive.vercel.app/api/resources" -TimeoutSec 4
+        if ($liveCheck -and $liveCheck.Count -gt 0) {
             $liveOk = $true
             break
         }
@@ -107,7 +130,7 @@ for ($attempt = 0; $attempt -lt 12; $attempt++) {
 }
 
 if ($liveOk) {
-    Write-Host "      [OK] Production site connected to your laptop!" -ForegroundColor Green
+    Write-Host "      [OK] Verified: All $($liveCheck.Count) course resources live on Vercel!" -ForegroundColor Green
 } else {
     Write-Host "      [OK] Deployment completed. (Edge propagation may take a few seconds)." -ForegroundColor Green
 }
@@ -145,5 +168,6 @@ try {
     Write-Host "Stopping tunnel and backend..." -ForegroundColor Gray
     if ($tunnelProcess) { Stop-Process -Id $tunnelProcess.Id -Force -ErrorAction SilentlyContinue }
     if ($serverProcess) { Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue }
+    Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Write-Host "Demo shut down cleanly." -ForegroundColor Green
 }
