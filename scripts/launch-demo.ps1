@@ -55,7 +55,7 @@ $tunnelProcess = $null
 
 # First try OpenSSH localhost.run (reliable global DNS, no NXDOMAIN drops)
 Write-Host "      Establishing secure internet bridge..." -ForegroundColor Gray
-$tunnelProcess = Start-Process ssh -ArgumentList "-o StrictHostKeyChecking=no -R 80:localhost:5001 nokey@localhost.run" -RedirectStandardOutput $tunnelLog -RedirectStandardError "$env:TEMP\ua_tunnel_err.log" -PassThru -NoNewWindow
+$tunnelProcess = Start-Process ssh -ArgumentList "-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -R 80:localhost:5001 nokey@localhost.run" -RedirectStandardOutput $tunnelLog -RedirectStandardError "$env:TEMP\ua_tunnel_err.log" -PassThru -NoNewWindow
 
 for ($i = 0; $i -lt 15; $i++) {
     Start-Sleep -Seconds 1
