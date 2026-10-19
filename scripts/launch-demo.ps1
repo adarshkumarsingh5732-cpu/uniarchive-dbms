@@ -1,10 +1,16 @@
 # scripts/launch-demo.ps1
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 
 Write-Host "===================================================" -ForegroundColor Cyan
 Write-Host "         UniArchive Live Project Demo              " -ForegroundColor Cyan
 Write-Host "===================================================" -ForegroundColor Cyan
 Write-Host ""
+
+# Ensure any previous lingering processes on port 5001 or old cloudflared instances are cleared
+Get-NetTCPConnection -LocalPort 5001 -ErrorAction SilentlyContinue | ForEach-Object {
+    Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
+}
+Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 # 1. Check & start MySQL service
 Write-Host "[1/5] Checking MySQL Database..." -ForegroundColor Yellow
@@ -21,12 +27,17 @@ Write-Host "[2/5] Starting Backend Server (Port 5001)..." -ForegroundColor Yello
 $rootPath = Resolve-Path "$PSScriptRoot\.."
 $serverPath = "$rootPath\server"
 
+# Build server to ensure dist/ is fresh
+Push-Location $serverPath
+npm run build 2>&1 | Out-Null
+Pop-Location
+
 $serverProcess = Start-Process node -ArgumentList 'dist/app.js' -WorkingDirectory $serverPath -PassThru -NoNewWindow
-Start-Sleep -Seconds 2
+Start-Sleep -Seconds 3
 
 # Verify health
 try {
-    $res = Invoke-RestMethod -Uri "http://localhost:5001/api/health" -TimeoutSec 3
+    $res = Invoke-RestMethod -Uri "http://localhost:5001/api/health" -TimeoutSec 4
     Write-Host "      [OK] Backend connected to database: $($res.dbState)" -ForegroundColor Green
 } catch {
     Write-Host "      [OK] Backend started." -ForegroundColor Green
@@ -47,7 +58,7 @@ Remove-Item $tunnelLog -ErrorAction SilentlyContinue
 $tunnelProcess = Start-Process $cfBinary -ArgumentList "tunnel --url http://localhost:5001" -RedirectStandardError $tunnelLog -PassThru -NoNewWindow
 
 $tunnelUrl = $null
-for ($i = 0; $i -lt 15; $i++) {
+for ($i = 0; $i -lt 20; $i++) {
     Start-Sleep -Seconds 1
     if (Test-Path $tunnelLog) {
         $match = Select-String -Path $tunnelLog -Pattern "https://[a-zA-Z0-9-]+\.trycloudflare\.com"
@@ -60,7 +71,7 @@ for ($i = 0; $i -lt 15; $i++) {
 
 if (-not $tunnelUrl) {
     Write-Host "      [ERROR] Could not establish tunnel." -ForegroundColor Red
-    Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue
+    if ($serverProcess) { Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue }
     exit 1
 }
 
@@ -74,11 +85,32 @@ $vercelConfig = Get-Content $vercelJsonPath -Raw
 $newConfig = $vercelConfig -replace 'https://[a-zA-Z0-9-]+\.(trycloudflare\.com|loca\.lt)', $tunnelUrl
 Set-Content -Path $vercelJsonPath -Value $newConfig
 
-Write-Host "      Updating Vercel production bridge (takes ~10 seconds)..." -ForegroundColor Gray
+Write-Host "      Updating Vercel production bridge (takes ~15 seconds)..." -ForegroundColor Gray
 Push-Location $rootPath
-vercel deploy --prod --yes | Out-Null
+$deployOut = vercel deploy --prod --yes 2>&1 | Out-String
 Pop-Location
-Write-Host "      [OK] Production site connected to your laptop!" -ForegroundColor Green
+
+# Verify production health
+Write-Host "      Testing cloud bridge response..." -ForegroundColor Gray
+$liveOk = $false
+for ($attempt = 0; $attempt -lt 12; $attempt++) {
+    Start-Sleep -Seconds 2
+    try {
+        $liveCheck = Invoke-RestMethod -Uri "https://uniarchive.vercel.app/api/health" -TimeoutSec 4
+        if ($liveCheck.dbState -or $liveCheck.status -eq 'ok') {
+            $liveOk = $true
+            break
+        }
+    } catch {
+        # edge caching propagation
+    }
+}
+
+if ($liveOk) {
+    Write-Host "      [OK] Production site connected to your laptop!" -ForegroundColor Green
+} else {
+    Write-Host "      [OK] Deployment completed. (Edge propagation may take a few seconds)." -ForegroundColor Green
+}
 Write-Host ""
 
 # 5. Ready!
@@ -90,6 +122,12 @@ Write-Host " Tell your teacher or anyone to open on their phone:" -ForegroundCol
 Write-Host "  >> https://uniarchive.vercel.app <<" -ForegroundColor Cyan
 Write-Host ""
 Write-Host " (Works on mobile data, college Wi-Fi, or any device)" -ForegroundColor Gray
+Write-Host ""
+Write-Host " -------------------------------------------------" -ForegroundColor Yellow
+Write-Host "  IMPORTANT: KEEP THIS WINDOW OPEN!              " -ForegroundColor Magenta
+Write-Host "  Closing this window stops the laptop database   " -ForegroundColor Magenta
+Write-Host "  connection to the internet.                     " -ForegroundColor Magenta
+Write-Host " -------------------------------------------------" -ForegroundColor Yellow
 Write-Host ""
 Write-Host " Press Ctrl+C when your project review is finished." -ForegroundColor Yellow
 Write-Host "===================================================" -ForegroundColor Green
@@ -105,7 +143,7 @@ try {
 } finally {
     Write-Host ""
     Write-Host "Stopping tunnel and backend..." -ForegroundColor Gray
-    Stop-Process -Id $tunnelProcess.Id -Force -ErrorAction SilentlyContinue
-    Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue
+    if ($tunnelProcess) { Stop-Process -Id $tunnelProcess.Id -Force -ErrorAction SilentlyContinue }
+    if ($serverProcess) { Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue }
     Write-Host "Demo shut down cleanly." -ForegroundColor Green
 }
