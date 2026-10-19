@@ -44,7 +44,7 @@ try {
 }
 Write-Host ""
 
-# 3. Start Public Tunnel (using native OpenSSH localhost.run with cloudflared fallback)
+# 3. Start Public Tunnel (Cloudflare Tunnel with 100MB upload support + SSH fallback)
 Write-Host "[3/5] Starting Secure Public Tunnel..." -ForegroundColor Yellow
 
 $tunnelLog = "$env:TEMP\ua_tunnel.log"
@@ -53,40 +53,57 @@ Remove-Item $tunnelLog -ErrorAction SilentlyContinue
 $tunnelUrl = $null
 $tunnelProcess = $null
 
-# First try OpenSSH localhost.run (reliable global DNS, no NXDOMAIN drops)
-Write-Host "      Establishing secure internet bridge..." -ForegroundColor Gray
-$tunnelProcess = Start-Process ssh -ArgumentList "-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -R 80:localhost:5001 nokey@localhost.run" -RedirectStandardOutput $tunnelLog -RedirectStandardError "$env:TEMP\ua_tunnel_err.log" -PassThru -NoNewWindow
-
-for ($i = 0; $i -lt 15; $i++) {
-    Start-Sleep -Seconds 1
-    if (Test-Path $tunnelLog) {
-        $content = Get-Content $tunnelLog -Raw
-        $match = [regex]::Match($content, 'https://[a-zA-Z0-9-]+\.lhr\.life')
-        if ($match.Success) {
-            $tunnelUrl = $match.Value
-            break
-        }
-    }
+# Try Cloudflare Tunnel first (supports large multipart file uploads up to 100MB)
+Write-Host "      Establishing Cloudflare edge tunnel..." -ForegroundColor Gray
+$cfBinary = "$env:USERPROFILE\bin\cloudflared.exe"
+if (-not (Test-Path $cfBinary)) {
+    Write-Host "      Downloading portable cloudflared..." -ForegroundColor Gray
+    Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile $cfBinary
 }
 
-# Fallback to Cloudflare tunnel if needed
-if (-not $tunnelUrl) {
-    Write-Host "      Falling back to Cloudflare tunnel..." -ForegroundColor Gray
-    if ($tunnelProcess) { Stop-Process -Id $tunnelProcess.Id -Force -ErrorAction SilentlyContinue }
-    $cfBinary = "$env:USERPROFILE\bin\cloudflared.exe"
-    if (-not (Test-Path $cfBinary)) {
-        Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile $cfBinary
-    }
-    Remove-Item $tunnelLog -ErrorAction SilentlyContinue
-    $tunnelProcess = Start-Process $cfBinary -ArgumentList "tunnel --url http://localhost:5001" -RedirectStandardError $tunnelLog -PassThru -NoNewWindow
-    for ($i = 0; $i -lt 20; $i++) {
-        Start-Sleep -Seconds 1
-        if (Test-Path $tunnelLog) {
-            $content = Get-Content $tunnelLog -Raw
+$tunnelProcess = Start-Process $cfBinary -ArgumentList "tunnel --url http://localhost:5001" -RedirectStandardError $tunnelLog -PassThru -NoNewWindow
+
+for ($i = 0; $i -lt 25; $i++) {
+    Start-Sleep -Seconds 1
+    if (Test-Path $tunnelLog) {
+        $content = Get-Content $tunnelLog -Raw -ErrorAction SilentlyContinue
+        if (-not [string]::IsNullOrWhiteSpace($content)) {
             $match = [regex]::Match($content, 'https://[a-zA-Z0-9-]+\.trycloudflare\.com')
             if ($match.Success) {
                 $tunnelUrl = $match.Value
                 break
+            }
+        }
+    }
+}
+
+# Ensure Cloudflare DNS has propagated
+if ($tunnelUrl) {
+    $domain = $tunnelUrl -replace 'https://', ''
+    Write-Host "      Verifying edge DNS propagation..." -ForegroundColor Gray
+    for ($d = 0; $d -lt 15; $d++) {
+        $dns = Resolve-DnsName $domain -ErrorAction SilentlyContinue
+        if ($dns) { break }
+        Start-Sleep -Seconds 1
+    }
+}
+
+# Fallback to OpenSSH localhost.run if Cloudflare failed
+if (-not $tunnelUrl) {
+    Write-Host "      Falling back to secure SSH tunnel..." -ForegroundColor Gray
+    if ($tunnelProcess) { Stop-Process -Id $tunnelProcess.Id -Force -ErrorAction SilentlyContinue }
+    Remove-Item $tunnelLog -ErrorAction SilentlyContinue
+    $tunnelProcess = Start-Process ssh -ArgumentList "-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -R 80:localhost:5001 nokey@localhost.run" -RedirectStandardOutput $tunnelLog -RedirectStandardError "$env:TEMP\ua_tunnel_err.log" -PassThru -NoNewWindow
+    for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Seconds 1
+        if (Test-Path $tunnelLog) {
+            $content = Get-Content $tunnelLog -Raw -ErrorAction SilentlyContinue
+            if (-not [string]::IsNullOrWhiteSpace($content)) {
+                $match = [regex]::Match($content, 'https://[a-zA-Z0-9-]+\.lhr\.life')
+                if ($match.Success) {
+                    $tunnelUrl = $match.Value
+                    break
+                }
             }
         }
     }
@@ -116,7 +133,7 @@ Pop-Location
 # Verify production health
 Write-Host "      Testing cloud bridge response..." -ForegroundColor Gray
 $liveOk = $false
-for ($attempt = 0; $attempt -lt 12; $attempt++) {
+for ($attempt = 0; $attempt -lt 15; $attempt++) {
     Start-Sleep -Seconds 2
     try {
         $liveCheck = Invoke-RestMethod -Uri "https://uniarchive.vercel.app/api/resources" -TimeoutSec 4

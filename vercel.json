@@ -26,7 +26,7 @@
     "rewrites": [
         {
             "source": "/api/(.*)",
-            "destination": "https://b20b0a0b18afbe.lhr.life/api/$1"
+            "destination": "https://16e21cdaca2599.lhr.life/api/$1"
         },
         {
             "source": "/(.*)",
@@ -34,6 +34,8 @@
         }
     ]
 }
+
+
 
 
 

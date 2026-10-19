@@ -257,7 +257,11 @@ export const createResourceHandler = async (req: Request, res: Response) => {
         // made uploads unopenable. Images still go to Cloudinary.
         let fileUrl: string;
         try {
-            if (req.file.mimetype === 'application/pdf') {
+            const isPdf = req.file.mimetype === 'application/pdf'
+                || req.file.originalname.toLowerCase().endsWith('.pdf')
+                || (req.file.buffer && req.file.buffer.subarray(0, 5).toString('latin1') === '%PDF-');
+
+            if (isPdf) {
                 fileUrl = await savePdf(req.file.buffer, req.file.originalname);
                 console.log('[Upload] stored PDF:', fileUrl);
             } else {

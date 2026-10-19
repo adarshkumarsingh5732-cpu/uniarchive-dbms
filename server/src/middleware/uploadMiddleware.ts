@@ -4,20 +4,17 @@ import path from 'path';
 const storage = multer.memoryStorage();
 
 function checkFileType(file: Express.Multer.File, cb: multer.FileFilterCallback) {
-    const filetypesRegex = /pdf|jpg|jpeg|png|doc|docx/i;
-    // Just a basic check.
-    const extname = filetypesRegex.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = filetypesRegex.test(file.mimetype);
+    const filetypesRegex = /\.(pdf|jpg|jpeg|png|webp|doc|docx)$/i;
+    const ext = path.extname(file.originalname).toLowerCase();
+    const isAllowedExt = filetypesRegex.test(ext);
 
-    // Some environments/browsers send odd mimetypes (e.g. application/octet-stream for .pdf on windows)
-    // If extension is valid, we might be lenient on mimetype or check strictly.
-    // For now, let's relax mimetype check if extension is CLEARLY pdf/doc.
-    // Actually, let's just log it in the error so the user can tell us what happened.
+    // Accept standard mimetypes OR generic octet-stream when extension is valid
+    const isAllowedMime = /pdf|image|doc|octet-stream|wordprocessingml/i.test(file.mimetype);
 
-    if (extname && mimetype) {
+    if (isAllowedExt && (isAllowedMime || !file.mimetype)) {
         return cb(null, true);
     } else {
-        cb(new Error(`Invalid file type! Extension: ${path.extname(file.originalname)}, Mime: ${file.mimetype}`));
+        cb(new Error(`Invalid file type! Extension: ${ext}, Mime: ${file.mimetype}`));
     }
 }
 
