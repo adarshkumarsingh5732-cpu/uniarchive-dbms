@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, Suspense, lazy } from 'react';
 import { Resource, ViewMode, ResourceType, PinnedSubject, User, CourseStats } from '../types';
 import { ResourceCard } from './ResourceCard';
-import { Filter, Search, Plus, Grid, Layers, Zap, User as UserIcon, LogOut, Sun, Moon, Pin, Library as LibraryIcon } from 'lucide-react';
+import { Filter, Search, Plus, Grid, Layers, Zap, User as UserIcon, LogOut, Sun, Moon, Pin, Library as LibraryIcon, X } from 'lucide-react';
 import { INITIAL_PINNED_SUBJECTS } from '../constants';
 import { SubjectDetail } from './SubjectDetail';
 import { FAQSection } from './FAQSection';
@@ -9,7 +9,9 @@ import { Footer } from './Footer';
 import { Library } from './Library';
 
 import { api } from '../services/api';
+import { searchResources } from '../services/search';
 import { MobileNav } from './MobileNav';
+import { BackgroundFX, FXControls, FXConfig, DEFAULT_FX_CONFIG } from './BackgroundFX';
 
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
@@ -64,6 +66,14 @@ export const Dashboard: React.FC = () => {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => readStored<'dark' | 'light'>('uniarchive_theme', 'dark'));
+  const [fxConfig, setFxConfig] = useState<FXConfig>(() =>
+    readStored<FXConfig>('uniarchive_fx_config', DEFAULT_FX_CONFIG)
+  );
+
+  const handleFxChange = (newConfig: FXConfig) => {
+    setFxConfig(newConfig);
+    localStorage.setItem('uniarchive_fx_config', JSON.stringify(newConfig));
+  };
 
   // Library State (Pinned & Saved) — restored from localStorage so it survives reloads.
   const [pinnedSubjects, setPinnedSubjects] = useState<PinnedSubject[]>(() => readStored('uniarchive_pinned', INITIAL_PINNED_SUBJECTS));
@@ -71,7 +81,6 @@ export const Dashboard: React.FC = () => {
 
   // Stats State
   const [courseStats, setCourseStats] = useState<CourseStats[]>([]);
-  const [topSlots, setTopSlots] = useState<{ name: string, resources: number, score: number }[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   // Restore Session
@@ -119,9 +128,10 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const { courseStats: stats, topSlots: slots } = await api.getStats();
+        // `topSlots` is still part of the API response but the stats page derives
+        // slot numbers from the catalogue itself, so it is not needed here.
+        const { courseStats: stats } = await api.getStats();
         setCourseStats(stats);
-        setTopSlots(slots);
       } catch (error) {
         console.error("Failed to load stats:", error);
       }
@@ -129,25 +139,14 @@ export const Dashboard: React.FC = () => {
     fetchStats();
   }, []);
 
-  // Mirrors the server's free-text match (title, course code, professor name,
-  // topic names) so local filtering behaves identically to `?search=`.  The SQL
-  // escapes LIKE wildcards, so a query is matched as a literal substring too.
-  const filteredResources = useMemo(() => {
-    const term = searchQuery.trim().toLowerCase();
-
-    return resources.filter(r => {
-      if (selectedType !== 'ALL' && r.type !== selectedType) return false;
-      if (selectedSlot !== 'ALL' && r.slot !== selectedSlot) return false;
-      if (!term) return true;
-
-      return (
-        r.title.toLowerCase().includes(term) ||
-        r.courseCode.toLowerCase().includes(term) ||
-        (r.professor ?? '').toLowerCase().includes(term) ||
-        r.topics.some(topic => topic.toLowerCase().includes(term))
-      );
-    });
-  }, [resources, selectedType, selectedSlot, searchQuery]);
+  // Ranked in-memory search + the type/slot filters (see services/search.ts).
+  // Multi-word queries are AND-ed, with an OR fallback, and results are ordered
+  // by relevance before quality/upvotes — so "sql indexing" no longer returns
+  // the whole archive in upload order.
+  const filteredResources = useMemo(
+    () => searchResources(resources, searchQuery, { type: selectedType, slot: selectedSlot }),
+    [resources, searchQuery, selectedType, selectedSlot]
+  );
 
   // Ticker / pinned numbers are derived from real data (no hardcoded placeholders).
   const resourceCountFor = (code: string) =>
@@ -248,6 +247,7 @@ export const Dashboard: React.FC = () => {
     if (resource) {
       return (
         <div className="min-h-screen bg-uni-black text-uni-text font-mono selection:bg-uni-neon selection:text-uni-black transition-colors duration-300">
+          <BackgroundFX config={fxConfig} theme={theme} />
           {/* Header for context */}
           <nav className="fixed top-0 w-full z-40 bg-uni-dark/90 backdrop-blur-md border-b border-uni-border h-16 flex items-center px-6 justify-between">
             <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleNavigation(ViewMode.DISCOVER)}>
@@ -279,11 +279,8 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-uni-black text-uni-text font-mono selection:bg-uni-neon selection:text-uni-black transition-colors duration-300">
-      {/* Structural Grid Background */}
-      <div className="fixed inset-0 z-0 pointer-events-none opacity-[0.06]" style={{
-        backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath d='M40 0H0V40' fill='none' stroke='%23a1a1aa' stroke-width='1'/%3E%3C/svg%3E\")",
-        backgroundSize: '40px 40px'
-      }}></div>
+      {/* Dynamic Background FX (Lighting / Dither / ASCII / Parallax / Cyberdeck / None) */}
+      <BackgroundFX config={fxConfig} theme={theme} />
 
       <Suspense fallback={null}>
         {showUpload && (
@@ -455,19 +452,45 @@ export const Dashboard: React.FC = () => {
               ))}
             </div>
 
-            {/* Search Bar - Trigger */}
-            <div className="sticky top-20 z-30 mb-8" onClick={() => setIsSearchOpen(true)}>
-              <div className="relative group max-w-3xl mx-auto shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)] cursor-pointer">
+            {/* Search — a real, instant input (the whole catalogue is in memory).
+                Ctrl+K still opens the global overlay with the AI mode. */}
+            <div className="sticky top-20 z-30 mb-8">
+              <div className="relative max-w-3xl mx-auto shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)]">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Search className="text-uni-muted group-hover:text-uni-neon transition-colors" size={20} />
+                  <Search className="text-uni-muted" size={20} />
                 </div>
-                <div className="w-full bg-uni-dark/95 backdrop-blur-md border border-uni-border py-4 pl-12 pr-12 text-uni-muted font-mono text-sm group-hover:border-uni-neon transition-all flex items-center truncate">
-                  {searchQuery || "Search subject, professor, topic, or press Ctrl+K..."}
-                </div>
-                <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
-                  <span className="text-[10px] text-uni-muted font-mono border border-uni-border px-1.5 py-0.5 group-hover:text-uni-contrast group-hover:border-uni-contrast">CTRL+K</span>
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search title, course, slot, professor or topic…"
+                  aria-label="Search the archive"
+                  className="w-full bg-uni-dark/95 backdrop-blur-md border border-uni-border py-4 pl-12 pr-32 text-uni-contrast font-mono text-sm outline-none focus:border-uni-neon transition-colors placeholder:text-uni-muted [&::-webkit-search-cancel-button]:hidden"
+                />
+                <div className="absolute inset-y-0 right-0 pr-3 flex items-center gap-2">
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      aria-label="Clear search"
+                      className="p-1 text-uni-muted hover:text-uni-alert transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setIsSearchOpen(true)}
+                    aria-label="Open global search and AI assistant"
+                    className="text-[10px] text-uni-muted font-mono border border-uni-border px-1.5 py-0.5 hover:text-uni-contrast hover:border-uni-neon transition-colors"
+                  >
+                    CTRL+K
+                  </button>
                 </div>
               </div>
+              {searchQuery.trim() && (
+                <p className="tabular max-w-3xl mx-auto mt-2 text-[11px] font-mono text-uni-muted">
+                  {filteredResources.length} of {resources.length} resources match “{searchQuery.trim()}”
+                </p>
+              )}
             </div>
 
             {/* Main Grid Layout */}
@@ -580,7 +603,12 @@ export const Dashboard: React.FC = () => {
               Loading analytics…
             </div>
           }>
-            <Analytics courseStats={courseStats} topSlots={topSlots} isLoading={isLoading} />
+            <Analytics
+              courseStats={courseStats}
+              resources={resources}
+              isLoading={isLoading}
+              onSelectSubject={openSubject}
+            />
           </Suspense>
         )}
       </main>
@@ -591,6 +619,9 @@ export const Dashboard: React.FC = () => {
         isLoggedIn={!!currentUser}
         onLogin={() => setIsLoginOpen(true)}
       />
+
+      {/* Interactive Background Effects Prototype Switcher */}
+      <FXControls config={fxConfig} onChange={handleFxChange} />
     </div>
   );
 };

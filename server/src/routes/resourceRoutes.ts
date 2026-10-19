@@ -3,6 +3,7 @@ import {
     getResources,
     getResourceByIdHandler,
     previewResourceHandler,
+    downloadResourceHandler,
     createResourceHandler,
     updateInteractionHandler,
     addCommentHandler
@@ -17,7 +18,10 @@ router.route('/')
 
 router.route('/:id').get(getResourceByIdHandler);
 
-router.route('/:id/preview').get(previewResourceHandler);
+// The trailing filename is decorative but load-bearing: Chrome's PDF viewer
+// names a saved inline file after the URL's last segment.
+router.route('/:id/preview/:filename?').get(previewResourceHandler);
+router.route('/:id/download/:filename?').get(downloadResourceHandler);
 
 router.route('/:id/comments').post(addCommentHandler);
 

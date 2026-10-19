@@ -117,6 +117,7 @@ erDiagram
     USER { int user_id PK
            string username
            string email
+           string password_hash
            string role }
     COURSE { int course_id PK
              string course_code
@@ -307,10 +308,12 @@ Design decisions:
 
 ## 6. Data Population (DML)
 
-Full script: **`db/seed.sql`**. It loads 10 resources, 34 resource-topic links,
-3 comments, 13 users, 8 courses and 16 course-topic coverage rows.
+Full script: **`db/seed.sql`**. It loads 11 resources, 24 resource-topic links,
+7 comments, 7 users, 4 courses and 18 course-topic coverage rows. Every
+`resources.pdf_url` points at a real course PDF in `server/storage/seed/`
+(served under `/files/seed/…`), so all seeded rows preview and download.
 
-The 2 912-row activity series is generated with set-based SQL rather than typed
+The 1 456-row activity series (4 courses × 364 days) is generated with set-based SQL rather than typed
 out:
 
 ```sql
@@ -391,14 +394,17 @@ Handlers in `server/src/controllers/`, backed by SQL repositories.
 |-----------|-------|-------|
 | List/filter/search | `GET /api/resources` | dynamic WHERE built from query params; topics attached with one follow-up query (no N+1) |
 | Detail | `GET /api/resources/:id` | resource + full comment thread; 404 when absent |
+| Preview & Download | `GET /api/resources/:id/preview/<slug>.pdf`, `/download/<slug>.pdf` | streams inline or attachment with readable filename; increments download counter server-side |
 | Upload | `POST /api/resources` | upload file → get-or-create every lookup row → insert resource → link topics, **in one transaction** |
 | Interactions | `POST /api/resources/:id/:action` | `view`/`download`/`upvote` counters; invalid action → 400 |
 | Comment | `POST /api/resources/:id/comments` | validates text, get-or-create author, insert; 404 for missing resource |
 | Stats | `GET /api/stats` | course aggregates + top-5 slots |
-| OTP | `POST /api/auth/otp`, `/verify` | upsert a 10-minute code, consume it on success |
+| Password Auth | `POST /api/auth/signup`, `POST /api/auth/login` | account registration with salted scrypt password hashing; login with timing-safe comparison |
+| OTP Auth | `POST /api/auth/otp`, `/verify` | upsert a 10-minute code, consume it on success |
+| AI Assistant | `POST /api/ai/ask` | contextual catalogue search via SQL query matching, sending grounded DB context to LLM |
 
 Business rules enforced in code *and* in the schema: completeness 0–100,
-counters never negative, one live OTP per email, a resource always has an
+counters never negative, one live OTP per email, scrypt-hashed passwords, a resource always has an
 author and a course.
 
 ---
@@ -424,7 +430,7 @@ all SQL; controllers never build queries themselves.
 
 ## 10. Testing & Validation
 
-`cd server && npm test` (resets the database, then runs 24 checks).
+`cd server && npm test` (resets a separate test database, then runs 42 checks).
 
 **Schema / normalization validation** (`test/schema.test.ts`)
 
@@ -445,11 +451,22 @@ all SQL; controllers never build queries themselves.
 - listing returns the catalogue with the exact JSON contract the UI consumes;
 - filters (type/slot/course) and search (title/topic/professor) narrow correctly;
 - detail includes the comment thread; unknown ids return 404;
-- stats return 7 course summaries, top slots and 364-point activity grids;
+- stats return 4 course summaries, top slots and 364-point activity grids;
 - upvote/view/download increment **and persist**; invalid actions return 400;
-- comments are appended, empty comments rejected, missing resources → 404.
+- comments are appended, empty comments rejected, missing resources → 404;
+- PDF inline preview streams with byte ranges, and download headers deliver human-readable filenames;
+- AI assistant query terms match relevant catalogue resources and validate question constraints.
 
-Result: **24 / 24 passing.**
+**Authentication & password security validation** (`test/auth.test.ts`)
+
+- account registration (`POST /api/auth/signup`) persists salted scrypt hashes (`scrypt$<salt>$<hash>`), never plaintext;
+- uniqueness enforcement: duplicate username and duplicate email are rejected with 409 Conflict;
+- input format validation: username pattern, email format, minimum password length;
+- timing-safe hash comparison (`crypto.timingSafeEqual`) prevents timing attack side-channels;
+- backward compatibility with legacy demo row (`admin123` / `scse`);
+- OTP lifecycle: issuance, throttle window age, overwrite semantics, and single-use consumption.
+
+Result: **42 / 42 passing.**
 
 ---
 
@@ -457,14 +474,15 @@ Result: **24 / 24 passing.**
 
 **Demo script**
 
-1. `mariadb < db/schema.sql && mariadb test_uniarchive < db/seed.sql` — show the
-   tables being created and populated (`SHOW TABLES;`, row counts).
-2. `cd server && npm run dev` → `GET /api/health` shows `connected`.
-3. `npm run dev` at the root → open the dashboard: filter, search, open a
-   resource, view comments.
-4. Upvote a resource and re-query the row in SQL to show the counter changed.
-5. `GET /api/stats` / the Analytics tab → coverage and heatmap.
-6. `cd server && npm test` → 24/24 green.
+1. `cd server && npm run db:reset` — show the tables being created and seeded (`SHOW TABLES;`, row count validation).
+2. Double-click `start-uniarchive.bat` — starts MySQL, Express backend (port 5001), and the public cloud bridge.
+3. Open `https://uniarchive.vercel.app` (or `http://localhost:3000`) on laptop and mobile:
+   - Filter by type, slot, and course.
+   - Instant ranked search across title, topics, course code, and professors.
+   - Open a resource: inline PDF viewer with stream seeking, readable download filenames.
+   - Upvote a resource or post a comment → re-query MySQL in real-time to demonstrate immediate persistence.
+   - Analytics tab: live course completion KPIs, 364-day activity heatmap, and topic coverage.
+4. `cd server && npm test` → 42/42 checks pass green.
 
 **Documentation**
 
@@ -476,22 +494,3 @@ Result: **24 / 24 passing.**
 | `server/.env.example` | every configuration variable |
 
 ---
-
-## Appendix — Porting notes (MongoDB → MySQL)
-
-The application was originally built on MongoDB documents. The port replaced
-Mongoose with `mysql2`, so the same Domain model is expressed relationally:
-
-| MongoDB | Relational |
-|---------|-----------|
-| `Resource` document with `topics[]` | `resources` + `resource_topics` + `topics` |
-| embedded `comments[]` | `comments` table |
-| `CourseStats` document with `topicCoverage[]`, `activityGrid[]` | `course_stats` + `course_topic_coverage` + `course_activity` |
-| free-text `author` | `users` table + FK |
-| `$text` index search | `LIKE` across title/course/professor + `EXISTS` on topics |
-| `TtlIndex` on OTP | `expires_at` column checked in the query |
-| `aggregate()` for top slots | `GROUP BY` + `AVG` + `LIMIT` |
-| Mongoose casts | CHECK constraints + parameterised queries |
-
-The HTTP contract was preserved exactly, so the React front end required no
-changes.

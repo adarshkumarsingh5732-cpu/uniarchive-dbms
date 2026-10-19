@@ -177,14 +177,15 @@ test('CHECK constraints reject invalid data', async () => {
 });
 
 test('UNIQUE constraints prevent duplicate keys', async () => {
+    // Create the colliding rows first rather than assuming a specific seed
+    // value exists: the seed's course/user set changes with the dataset, and a
+    // hard-coded code silently turned this into "first insert wins".
+    await conn.query(`INSERT INTO courses (course_code, course_name) VALUES ('UNIQ_PROBE', 'probe')`);
     await assert.rejects(
-        () => conn.query(`INSERT INTO courses (course_code, course_name) VALUES ('BMAT202L', 'dup')`),
+        () => conn.query(`INSERT INTO courses (course_code, course_name) VALUES ('UNIQ_PROBE', 'dup')`),
         /Duplicate entry/
     );
 
-    // Create the colliding row first rather than assuming it is in the seed
-    // (the seed was collapsed to a single user, so a hard-coded username is
-    // not guaranteed to exist).
     await conn.query(
         `INSERT INTO users (username, email) VALUES ('uniq_probe', 'uniq_probe@test.local')`
     );

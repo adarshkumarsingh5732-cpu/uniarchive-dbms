@@ -14,9 +14,10 @@ import { sendEmail } from '../utils/email.js';
  * Whether the server can actually send email right now.  When SMTP is absent the
  * OTP flow is disabled (returns 503) so a demo deploy without SMTP does not crash.
  */
-const smtpReady = ():
-    | { ok: true }
-    | { ok: false; reason: string } => {
+// `reason` is optional on the success case (rather than a discriminated union)
+// so `smtp.reason` type-checks under both server/tsconfig.json (strict) and the
+// root tsconfig, which turns strictNullChecks off and so cannot narrow on `ok`.
+const smtpReady = (): { ok: boolean; reason?: string } => {
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
     if (!user || !pass) return { ok: false, reason: 'SMTP not configured' };

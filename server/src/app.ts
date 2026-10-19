@@ -7,6 +7,8 @@ import resourceRoutes from './routes/resourceRoutes.js';
 import statsRoutes from './routes/statsRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
 import authRoutes from './routes/authRoutes.js';
+import { aiInfo } from './utils/ai.js';
+import { STORAGE_ROOT } from './utils/storage.js';
 
 dotenv.config();
 
@@ -45,6 +47,10 @@ app.use(cors(corsOrigin ? { origin: corsOrigin.split(',').map(o => o.trim()) } :
 app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 
+// Locally-stored files (PDFs). The preview/download endpoints stream these with
+// the right headers; this static mount keeps direct /files/... links working.
+app.use('/files', express.static(STORAGE_ROOT, { maxAge: '1d', fallthrough: true }));
+
 // Routes
 app.use('/api/resources', resourceRoutes);
 app.use('/api/stats', statsRoutes);
@@ -68,7 +74,10 @@ app.get('/api/health', async (_req, res) => {
     res.json({
         status: 'ok',
         timestamp: new Date().toISOString(),
-        dbState
+        dbState,
+        // Which AI model the assistant will use (never the key), so a deploy can
+        // be diagnosed from /api/health alone.
+        ai: aiInfo()
     });
 });
 

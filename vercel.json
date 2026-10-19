@@ -26,7 +26,7 @@
     "rewrites": [
         {
             "source": "/api/(.*)",
-            "destination": "https://dsc-accommodation-consistent-coupons.trycloudflare.com/api/$1"
+            "destination": "https://requesting-examining-sean-sequence.trycloudflare.com/api/$1"
         },
         {
             "source": "/(.*)",
@@ -34,3 +34,5 @@
         }
     ]
 }
+
+

@@ -2,12 +2,13 @@ import { Request, Response } from 'express';
 import {
     listResources,
     getResourceById,
-    getResourceFileUrl,
+    getResourceFileMeta,
     createResource,
     incrementInteraction,
     addComment
 } from '../repositories/resourceRepository.js';
 import { uploadToCloudinary } from '../utils/cloudinary.js';
+import { readStoredFile, savePdf } from '../utils/storage.js';
 
 // @desc    Get all resources
 // @route   GET /api/resources
@@ -86,30 +87,88 @@ const loadPreview = async (id: string, fileUrl: string): Promise<PreviewEntry> =
     return entry;
 };
 
-export const previewResourceHandler = async (req: Request, res: Response) => {
+/** URL-safe stem for the saved file, e.g. `cse2004-database-management-sql-queries`. */
+export const slugify = (text: string): string =>
+    text
+        .normalize('NFKD')
+        .replace(/[^\w\s-]/g, '')
+        .trim()
+        .replace(/[\s_]+/g, '-')
+        .replace(/-+/g, '-')
+        .toLowerCase()
+        .slice(0, 60);
+
+/** Extension to save under, based on what the bytes actually are. */
+const fileExtension = (contentType: string, isPdf: boolean): string => {
+    if (isPdf) return 'pdf';
+    if (contentType.includes('png')) return 'png';
+    if (contentType.includes('jpeg') || contentType.includes('jpg')) return 'jpg';
+    if (contentType.includes('webp')) return 'webp';
+    if (contentType.includes('msword')) return 'doc';
+    if (contentType.includes('wordprocessingml')) return 'docx';
+    if (contentType.includes('text/plain')) return 'txt';
+    return 'bin';
+};
+
+/**
+ * Build the file name a browser should save this resource as.
+ *
+ * Chrome's built-in PDF viewer ignores `Content-Disposition` for files it shows
+ * inline and names the saved file after the URL's last path segment — which is
+ * why downloads used to arrive as `preview`. Two fixes, both applied here:
+ * `attachment` responses carry an explicit name, and the inline preview URL now
+ * ends in `/<slug>.pdf` so even "Save as" from the viewer is sensible.
+ */
+const resourceFileName = (title: string, courseCode: string, id: string, extension: string): string => {
+    // Most seed titles already start with the course code — don't repeat it.
+    const includesCode = title.toLowerCase().includes(courseCode.toLowerCase());
+    const stem = slugify(includesCode ? title : `${courseCode} ${title}`);
+    return `${stem || `resource-${slugify(id) || 'file'}`}.${extension}`;
+};
+
+const contentDisposition = (type: 'inline' | 'attachment', filename: string): string => {
+    const ascii = filename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '');
+    return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+};
+
+/**
+ * Shared streaming path for `.../preview` (inline) and `.../download`
+ * (attachment).  Both re-serve the upstream bytes from our own origin so the
+ * browser previews them and so the saved file has a readable name.
+ */
+const streamResourceFile = async (
+    req: Request,
+    res: Response,
+    disposition: 'inline' | 'attachment'
+) => {
     try {
         const id = String(req.params.id);
-        const fileUrl = await getResourceFileUrl(id);
-        if (!fileUrl) {
+        const meta = await getResourceFileMeta(id);
+        if (!meta) {
             res.status(404).json({ message: 'Resource not found' });
             return;
         }
 
-        // Relative / same-origin files are already served by this app.
-        if (fileUrl.startsWith('/')) {
-            res.redirect(fileUrl);
+        // PDFs live in server/storage and are read straight off disk; anything
+        // else (images / legacy rows) is proxied from its URL.
+        const stored = await readStoredFile(meta.pdfUrl);
+        if (!stored && meta.pdfUrl.startsWith('/')) {
+            res.redirect(meta.pdfUrl);
             return;
         }
 
-        const entry = await loadPreview(id, fileUrl);
+        const entry = stored ?? await loadPreview(id, meta.pdfUrl);
         const { body, contentType, isPdf } = entry;
-        const safeId = id.replace(/[^A-Za-z0-9_-]/g, '') || 'file';
+        const filename = resourceFileName(meta.title, meta.courseCode, id, fileExtension(contentType, isPdf));
+
+        // The counter is incremented by the server for real downloads, so the
+        // client does not have to (and cannot double-count).
+        if (disposition === 'attachment') {
+            await incrementInteraction(id, 'download').catch(() => {});
+        }
 
         res.setHeader('Content-Type', contentType);
-        res.setHeader(
-            'Content-Disposition',
-            isPdf ? `inline; filename="resource-${safeId}.pdf"` : 'inline'
-        );
+        res.setHeader('Content-Disposition', contentDisposition(disposition, filename));
         res.setHeader('Accept-Ranges', 'bytes');
         // The bytes come from a third party and our headers are authoritative;
         // never let a browser reuse an earlier response for this URL (a stale
@@ -158,6 +217,14 @@ export const previewResourceHandler = async (req: Request, res: Response) => {
     }
 };
 
+export const previewResourceHandler = (req: Request, res: Response) =>
+    streamResourceFile(req, res, 'inline');
+
+// @desc    Download a resource with a readable filename
+// @route   GET /api/resources/:id/download/:filename?
+export const downloadResourceHandler = (req: Request, res: Response) =>
+    streamResourceFile(req, res, 'attachment');
+
 // @desc    Get single resource
 // @route   GET /api/resources/:id
 export const getResourceByIdHandler = async (req: Request, res: Response) => {
@@ -185,22 +252,28 @@ export const createResourceHandler = async (req: Request, res: Response) => {
 
         const metadata = JSON.parse(req.body.data);
 
-        let result;
+        // PDFs are stored on our own origin: Cloudinary accounts can have PDF
+        // delivery disabled (ours does — every `.pdf` URL answers 401), which
+        // made uploads unopenable. Images still go to Cloudinary.
+        let fileUrl: string;
         try {
-            console.log('[Upload] Starting Cloudinary upload...');
-            // 'image' for images, 'raw' for everything else (PDFs, Docs) to prevent corruption.
-            const isImage = req.file.mimetype.startsWith('image/');
-            const resourceType = isImage ? 'image' : 'raw';
-            result = await uploadToCloudinary(req.file.buffer, 'uniarchive', resourceType);
-            console.log('[Upload] Cloudinary success:', result.secure_url);
+            if (req.file.mimetype === 'application/pdf') {
+                fileUrl = await savePdf(req.file.buffer, req.file.originalname);
+                console.log('[Upload] stored PDF:', fileUrl);
+            } else {
+                const resourceType = req.file.mimetype.startsWith('image/') ? 'image' : 'raw';
+                const result = await uploadToCloudinary(req.file.buffer, 'uniarchive', resourceType);
+                fileUrl = result.secure_url;
+                console.log('[Upload] Cloudinary success:', fileUrl);
+            }
         } catch (uploadError: any) {
-            console.error('[Upload] Cloudinary Failed:', uploadError);
-            res.status(500).json({ message: 'Cloud Upload Failed: ' + (uploadError.message || uploadError) });
+            console.error('[Upload] Failed:', uploadError);
+            res.status(500).json({ message: 'Upload failed: ' + (uploadError.message || uploadError) });
             return;
         }
 
         // Attribute the upload to the signed-in user when the client sends one.
-        const created = await createResource(metadata, result.secure_url, metadata.author || 'You');
+        const created = await createResource(metadata, fileUrl, metadata.author || 'You');
         res.status(201).json(created);
     } catch (error: any) {
         console.error('[CreateResource] Error:', error);

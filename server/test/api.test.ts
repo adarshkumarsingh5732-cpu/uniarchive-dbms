@@ -48,7 +48,9 @@ test('GET /api/resources returns the full seeded catalogue', async () => {
     const { status, body } = await getJson('/resources');
     assert.equal(status, 200);
     assert.ok(Array.isArray(body), 'response should be an array');
-    assert.equal(body.length, 10);
+    assert.equal(body.length, 11);
+    // Every seeded row points at a real stored file, not a placeholder.
+    assert.ok(body.every((r: any) => /^\/files\/seed\/[a-z0-9-]+\.pdf$/.test(r.pdfUrl)));
 
     const first = body[0];
     for (const key of ['id', 'title', 'courseCode', 'slot', 'type', 'topics',
@@ -66,23 +68,26 @@ test('filters narrow the result set', async () => {
     assert.ok(byType.body.every((r: any) => r.type === 'Notes'));
 
     const bySlot = await getJson('/resources?slot=C1');
+    assert.ok(bySlot.body.length > 0);
     assert.ok(bySlot.body.every((r: any) => r.slot === 'C1'));
 
-    const byCourse = await getJson('/resources?course=CSE');
+    const byCourse = await getJson('/resources?course=BACSE');
     assert.ok(byCourse.body.length >= 4);
-    assert.ok(byCourse.body.every((r: any) => r.courseCode.startsWith('CSE')));
+    assert.ok(byCourse.body.every((r: any) => r.courseCode.startsWith('BACSE')));
 });
 
 test('free-text search matches title, course, professor and topic', async () => {
     const byTitle = await getJson('/resources?search=SQL');
     assert.ok(byTitle.body.length >= 1);
+    assert.ok(byTitle.body.some((r: any) => /SQL/.test(r.title)));
 
-    const byTopic = await getJson('/resources?search=k-map');
+    const byTopic = await getJson('/resources?search=indexing');
     assert.equal(byTopic.body.length, 1);
-    assert.match(byTopic.body[0].title, /Karnaugh/i);
+    assert.match(byTopic.body[0].title, /Indexing/i);
 
-    const byProfessor = await getJson('/resources?search=Roberts');
+    const byProfessor = await getJson('/resources?search=Chandran');
     assert.ok(byProfessor.body.length >= 1);
+    assert.ok(byProfessor.body.every((r: any) => /Chandran/.test(r.professor || '')));
 });
 
 test('GET /api/resources/:id includes the comment thread', async () => {
@@ -103,7 +108,7 @@ test('GET /api/resources/:id returns 404 for unknown ids', async () => {
 test('GET /api/stats returns course aggregates and top slots', async () => {
     const { status, body } = await getJson('/stats');
     assert.equal(status, 200);
-    assert.equal(body.courseStats.length, 7);
+    assert.equal(body.courseStats.length, 4);
     assert.ok(body.topSlots.length > 0 && body.topSlots.length <= 5);
 
     const stat = body.courseStats[0];
@@ -157,6 +162,64 @@ test('comment without text is rejected with 400', async () => {
 test('commenting on a missing resource returns 404', async () => {
     const { status } = await postJson('/resources/999999/comments', { text: 'hi' });
     assert.equal(status, 404);
+});
+
+// --- File delivery: preview (inline) and download (attachment) -------------
+
+test('the preview endpoint streams inline with a readable filename', async () => {
+    const res = await fetch(`${base}/resources/1/preview/anything.pdf`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'application/pdf');
+    const disposition = res.headers.get('content-disposition') || '';
+    assert.match(disposition, /^inline;/);
+    // Chrome names a saved inline PDF after the URL, so the filename must be real.
+    assert.match(disposition, /filename="[a-z0-9-]+\.pdf"/);
+    assert.ok(!/filename="preview/.test(disposition));
+});
+
+test('the download endpoint sends an attachment and counts the download', async () => {
+    const before = (await getJson('/resources/2')).body.downloads;
+
+    const res = await fetch(`${base}/resources/2/download/whatever.pdf`);
+    assert.equal(res.status, 200);
+    const disposition = res.headers.get('content-disposition') || '';
+    assert.match(disposition, /^attachment;/);
+    assert.match(disposition, /filename="[a-z0-9-]+\.pdf"/);
+
+    const after = (await getJson('/resources/2')).body.downloads;
+    assert.equal(after, before + 1, 'the server must own the download counter');
+});
+
+test('downloading a missing resource returns 404', async () => {
+    const res = await fetch(`${base}/resources/999999/download/x.pdf`);
+    assert.equal(res.status, 404);
+});
+
+// --- AI: grounded context + request validation -----------------------------
+
+test('the AI context is built from real matches and stays small', async () => {
+    const { buildCatalogueContext, questionTerms } = await import('../src/repositories/aiRepository.ts');
+
+    // Question words are reduced to search terms (stopwords and filler dropped).
+    assert.deepEqual(questionTerms('what resources exist for BAMAT207?'), ['bamat207']);
+
+    const { text, sources } = await buildCatalogueContext('which resources exist for BAMAT207?');
+    assert.equal(sources.length, 5);
+    assert.ok(sources.every(s => s.courseCode === 'BAMAT207'));
+    assert.match(text, /^ARCHIVE: \d+ resources/);
+    assert.ok(text.length < 1200, `context should stay light, got ${text.length} chars`);
+
+    const none = await buildCatalogueContext('quantum chromodynamics lecture notes');
+    assert.equal(none.sources.length, 0);
+    assert.match(none.text, /MATCHES: none/);
+});
+
+test('AI questions are validated before reaching the provider', async () => {
+    const empty = await postJson('/ai/ask', { query: '   ' });
+    assert.equal(empty.status, 400);
+
+    const tooLong = await postJson('/ai/ask', { query: 'x'.repeat(400) });
+    assert.equal(tooLong.status, 400);
 });
 
 // --- Auth: normal account signup (no SMTP) --------------------------------

@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Resource, Comment } from '../types';
-import { api } from '../services/api';
+import { api, resourcePreviewUrl, resourceDownloadUrl } from '../services/api';
 import { ArrowLeft, ThumbsUp, ThumbsDown, MessageSquare, Share2, Download, User, Calendar, MoreHorizontal, ExternalLink, Bookmark, Flag, Eye, Maximize, Minimize } from 'lucide-react';
 
 interface Props {
@@ -50,16 +50,10 @@ export const ResourceViewer: React.FC<Props> = ({ resource, onBack, isSaved = fa
     }
   };
 
-  const handleDownload = async () => {
-    try {
-      await api.updateInteraction(resource.id, 'download');
-      setDownloads(prev => prev + 1);
-      window.open(resource.pdfUrl, '_blank');
-    } catch (error) {
-      console.error("Download tracking failed", error);
-      window.open(resource.pdfUrl, '_blank'); // Open anyway
-    }
-  };
+  // Downloads go through our own endpoint (see the DOWNLOAD link below): it
+  // streams the file as an `attachment` with a readable name, and the server
+  // increments the download counter — so the UI only updates its own badge.
+
 
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href);
@@ -102,11 +96,9 @@ export const ResourceViewer: React.FC<Props> = ({ resource, onBack, isSaved = fa
   // Cloudinary / external URL directly. Cloudinary serves PDFs uploaded as a
   // `raw` asset with `Content-Disposition: attachment`, and many hosts do the
   // same, which makes the browser download the file instead of rendering it in
-  // an iframe. `GET /api/resources/:id/preview` streams the file back with
-  // `Content-Disposition: inline`, so the built-in browser viewer kicks in.
-  const previewUrl = resource.pdfUrl
-    ? `${(import.meta.env.VITE_API_URL as string | undefined) ?? '/api'}/resources/${resource.id}/preview`
-    : undefined;
+  // an iframe. `GET /api/resources/:id/preview/<slug>.pdf` streams the file back
+  // with `Content-Disposition: inline` *and* a readable name.
+  const previewUrl = resource.pdfUrl ? resourcePreviewUrl(resource) : undefined;
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] animate-in fade-in slide-in-from-bottom-4 duration-300 relative">
@@ -149,12 +141,13 @@ export const ResourceViewer: React.FC<Props> = ({ resource, onBack, isSaved = fa
           >
             <Bookmark size={18} fill={isSaved ? "currentColor" : "none"} />
           </button>
-          <button
-            onClick={handleDownload}
+          <a
+            href={resourceDownloadUrl(resource)}
+            onClick={() => setDownloads(prev => prev + 1)}
             className="hidden md:flex items-center gap-2 bg-uni-neon text-uni-black px-4 py-2 font-bold font-mono text-xs hover:bg-white transition-colors shadow-hard-neon active:translate-y-0.5 active:shadow-none"
           >
             <Download size={14} /> DOWNLOAD
-          </button>
+          </a>
           <div className="h-6 w-px bg-uni-border mx-1"></div>
           <button
             onClick={handleShare}

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, Command, Zap, ArrowRight, Hash, BookOpen, User } from 'lucide-react';
+import { Search, Zap, ArrowRight, Hash, BookOpen } from 'lucide-react';
 import { AVAILABLE_TOPICS } from '../constants';
-import { Resource } from '../types';
+import { Resource, AIAnswer } from '../types';
 import { api } from '../services/api';
+import { searchResources, highlightParts, tokenize } from '../services/search';
 
 interface Props {
   onClose: () => void;
@@ -12,73 +13,113 @@ interface Props {
   catalogue: Resource[];
 }
 
+/** Bolds the first query token found in the text, so hits are obvious. */
+const Highlight: React.FC<{ text: string; query: string }> = ({ text, query }) => {
+  const [before, match, after] = highlightParts(text, query);
+  if (!match) return <>{text}</>;
+  return (
+    <>
+      {before}
+      <mark className="bg-uni-neon/30 text-uni-contrast">{match}</mark>
+      {after}
+    </>
+  );
+};
+
 export const SearchOverlay: React.FC<Props> = ({ onClose, onSelectResource, onSelectSubject, catalogue }) => {
   const [query, setQuery] = useState('');
   const [aiMode, setAiMode] = useState(false);
-  const [aiResponse, setAiResponse] = useState<string | null>(null);
+  const [aiAnswer, setAiAnswer] = useState<AIAnswer | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Ranked, in-memory search — same index for the list and the subject chips.
+  const results = useMemo(() => searchResources(catalogue, query), [catalogue, query]);
+  const topResults = results.slice(0, 6);
+  const subjects = useMemo(
+    () => [...new Set(results.map(r => r.courseCode))].slice(0, 3),
+    [results]
+  );
+
+  /** Everything ↑/↓ can land on, in render order. */
+  const items = useMemo(
+    () => [
+      ...subjects.map(code => ({ kind: 'subject' as const, id: code })),
+      ...topResults.map(r => ({ kind: 'resource' as const, id: r.id }))
+    ],
+    [subjects, topResults]
+  );
 
   useEffect(() => {
     inputRef.current?.focus();
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        setAiMode(prev => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    const handleEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
   }, [onClose]);
 
-  // Live search over the in-memory catalogue: same match rules as the API's
-  // `?search=` (title, course code, professor, topics), but with no round trip
-  // per keystroke — results appear as you type instead of after a debounce.
-  const results = useMemo(() => {
-    const term = query.trim().toLowerCase();
-    if (!term) return [];
+  // Reset the cursor whenever the result set changes shape.
+  useEffect(() => { setActiveIndex(0); }, [query, aiMode]);
 
-    return catalogue.filter(r =>
-      r.title.toLowerCase().includes(term) ||
-      r.courseCode.toLowerCase().includes(term) ||
-      (r.professor ?? '').toLowerCase().includes(term) ||
-      r.topics.some(topic => topic.toLowerCase().includes(term))
-    );
-  }, [catalogue, query]);
+  const openItem = (item: { kind: 'subject' | 'resource'; id: string }) => {
+    if (item.kind === 'subject') onSelectSubject(item.id);
+    else onSelectResource(item.id);
+    onClose();
+  };
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (aiMode && query.trim()) {
-      setIsAiLoading(true);
-      try {
-        const answer = await api.askAI(query);
-        setAiResponse(answer);
-      } catch (err: any) {
-        console.error("AI Error:", err);
-        setAiResponse(`Error: ${err.message || "Failed to reach AI service"}`);
-      } finally {
-        setIsAiLoading(false);
-      }
+  const askAi = async (question: string) => {
+    setIsAiLoading(true);
+    setAiAnswer(null);
+    try {
+      setAiAnswer(await api.askAI(question));
+    } catch (err: any) {
+      setAiAnswer({ answer: err.message || 'Failed to reach the AI service', sources: [], ai: null });
+    } finally {
+      setIsAiLoading(false);
     }
   };
 
-  // Subjects and resources are derived from the live API result set, so uploads
-  // and newly added material show up in search immediately.
-  const filteredSubjects = Array.from(new Set(results.map(r => r.courseCode))).slice(0, 3);
-  const filteredResources = results.slice(0, 5);
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const term = query.trim();
+    if (!term) return;
+
+    if (aiMode) {
+      void askAi(term);
+      return;
+    }
+    // Enter with a cursor on a result opens it; otherwise jump to the archive
+    // view filtered by the query (which is live on the Discover page).
+    const active = items[activeIndex];
+    if (active && (active.kind === 'resource' || active.kind === 'subject')) openItem(active);
+    else if (topResults[0]) openItem({ kind: 'resource', id: topResults[0].id });
+    else onClose();
+  };
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveIndex(index => (index + 1) % items.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIndex(index => (index - 1 + items.length) % items.length);
+    }
+  };
+
+  const hasQuery = query.trim().length > 0;
+  const tokens = tokenize(query);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[20vh] bg-uni-black/80 backdrop-blur-sm p-4 font-mono">
-      <div className="w-full max-w-2xl bg-uni-panel border border-uni-border shadow-2xl overflow-hidden flex flex-col max-h-[60vh]">
+    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] bg-uni-black/80 backdrop-blur-sm p-4 font-mono">
+      <div className="w-full max-w-2xl bg-uni-panel border border-uni-border shadow-2xl overflow-hidden flex flex-col max-h-[70vh]">
 
         {/* Search Input Area */}
-        <form onSubmit={handleSearch} className="flex items-center p-4 border-b border-uni-border bg-uni-dark relative">
+        <form onSubmit={handleSubmit} className="flex items-center p-4 border-b border-uni-border bg-uni-dark relative gap-2">
           {aiMode ? (
-            <Zap className="text-uni-neon mr-3 animate-pulse" size={24} />
+            <Zap className="text-uni-neon shrink-0" size={22} />
           ) : (
-            <Search className="text-uni-muted mr-3" size={24} />
+            <Search className="text-uni-muted shrink-0" size={22} />
           )}
 
           <input
@@ -86,26 +127,22 @@ export const SearchOverlay: React.FC<Props> = ({ onClose, onSelectResource, onSe
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={aiMode ? "Ask AI anything about the archives..." : "Search subjects, notes, tags..."}
-            className="flex-1 bg-transparent text-lg text-uni-contrast outline-none placeholder:text-uni-muted/50 font-sans min-w-0"
+            onKeyDown={handleInputKeyDown}
+            placeholder={aiMode ? 'Ask about the archive, e.g. “what is in the k-map notes?”' : 'Search title, course, slot, professor or topic…'}
+            aria-label={aiMode ? 'Ask the archive a question' : 'Search the archive'}
+            className="flex-1 bg-transparent text-base text-uni-contrast outline-none placeholder:text-uni-muted/60 font-sans min-w-0"
           />
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Mobile AI Toggle */}
             <button
               type="button"
-              onClick={() => setAiMode(!aiMode)}
-              className={`md:hidden p-2 rounded-full transition-colors ${aiMode ? 'bg-uni-neon/20 text-uni-neon' : 'bg-uni-panel text-uni-muted'}`}
+              onClick={() => { setAiMode(mode => !mode); setAiAnswer(null); }}
+              aria-pressed={aiMode}
+              className={`text-[10px] px-2 py-1 border transition-colors ${aiMode ? 'border-uni-neon text-uni-neon bg-uni-neon/10' : 'border-uni-border text-uni-muted hover:text-uni-contrast hover:border-uni-neon'}`}
             >
-              <Zap size={18} fill={aiMode ? "currentColor" : "none"} />
+              {aiMode ? 'AI ON' : 'AI'}
             </button>
-
-            {/* Desktop Hint */}
-            <span className={`hidden md:inline-flex text-[10px] px-2 py-1 border rounded transition-colors ${aiMode ? 'border-uni-neon text-uni-neon bg-uni-neon/10' : 'border-uni-border text-uni-muted'}`}>
-              TAB {aiMode ? 'OFF' : 'FOR AI'}
-            </span>
-            <span className="hidden md:inline text-[10px] px-2 py-1 border border-uni-border text-uni-muted rounded">ESC</span>
-            <button type="button" onClick={onClose} className="md:hidden text-uni-muted p-1">✕</button>
+            <button type="button" onClick={onClose} aria-label="Close search" className="text-uni-muted p-1 hover:text-uni-contrast">✕</button>
           </div>
         </form>
 
@@ -114,10 +151,13 @@ export const SearchOverlay: React.FC<Props> = ({ onClose, onSelectResource, onSe
 
           {aiMode ? (
             <div className="p-4">
-              {!aiResponse && !isAiLoading && (
+              {!aiAnswer && !isAiLoading && (
                 <div className="text-center text-uni-muted py-8">
-                  <Zap size={48} className="mx-auto mb-4 opacity-20" />
-                  <p>AI Mode is active. Ask questions like <br />"What are the key topics in BMAT202L?"</p>
+                  <Zap size={44} className="mx-auto mb-4 opacity-20" />
+                  <p className="prose-read text-sm">
+                    Ask a question about the archive — the assistant answers from the
+                    resources here and links the ones it used.
+                  </p>
                 </div>
               )}
               {isAiLoading && (
@@ -126,74 +166,132 @@ export const SearchOverlay: React.FC<Props> = ({ onClose, onSelectResource, onSe
                   <div className="h-4 w-1/2 bg-uni-border animate-pulse rounded"></div>
                 </div>
               )}
-              {aiResponse && (
-                <div className="prose prose-invert prose-sm">
-                  <h4 className="text-uni-neon font-bold mb-2 uppercase text-xs">AI Response</h4>
-                  <p className="prose-read text-uni-contrast">{aiResponse}</p>
+              {aiAnswer && (
+                <div>
+                  <h4 className="text-uni-neon font-bold mb-2 uppercase text-xs">Answer</h4>
+                  <p className="prose-read text-uni-contrast text-sm">{aiAnswer.answer}</p>
+
+                  {aiAnswer.sources.length > 0 && (
+                    <div className="mt-4">
+                      <h4 className="text-uni-muted font-bold mb-2 uppercase text-[10px]">
+                        Sources ({aiAnswer.sources.length})
+                      </h4>
+                      <div className="space-y-1">
+                        {aiAnswer.sources.map(source => (
+                          <button
+                            key={source.id}
+                            onClick={() => { onSelectResource(source.id); onClose(); }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-uni-border/50 transition-colors rounded"
+                          >
+                            <Hash size={14} className="text-uni-cyan shrink-0" />
+                            <span className="text-uni-contrast text-xs truncate">{source.title}</span>
+                            <span className="ml-auto text-[10px] text-uni-muted shrink-0">{source.courseCode} · {source.type}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {aiAnswer.ai && (
+                    <p className="mt-4 text-[10px] text-uni-muted border-t border-uni-border pt-2">
+                      {aiAnswer.ai.model} via {aiAnswer.ai.provider} · answers are grounded in {catalogue.length} archived resources
+                    </p>
+                  )}
                 </div>
               )}
             </div>
           ) : (
             <>
-              {query && (
+              {hasQuery && (
                 <div className="space-y-1">
-                  {/* Subjects Group */}
-                  {filteredSubjects.length > 0 && (
+                  <div className="px-3 py-1 text-[10px] font-bold text-uni-muted uppercase tabular">
+                    {results.length} {results.length === 1 ? 'match' : 'matches'}
+                    {tokens.length > 1 ? ` for ${tokens.join(' + ')}` : ''}
+                  </div>
+
+                  {subjects.length > 0 && (
                     <div className="mb-2">
                       <div className="px-3 py-2 text-xs font-bold text-uni-muted uppercase">Subjects</div>
-                      {filteredSubjects.map(code => (
-                        <button
-                          key={code}
-                          onClick={() => { onSelectSubject(code); onClose(); }}
-                          className="w-full flex items-center px-3 py-3 hover:bg-uni-border/50 rounded group transition-colors text-left"
-                        >
-                          <BookOpen size={16} className="text-uni-cyan mr-3" />
-                          <span className="text-uni-contrast group-hover:text-uni-cyan font-bold">{code}</span>
-                          <ArrowRight size={14} className="ml-auto opacity-0 group-hover:opacity-100 text-uni-muted" />
-                        </button>
-                      ))}
+                      {subjects.map((code, index) => {
+                        const active = activeIndex === index;
+                        return (
+                          <button
+                            key={code}
+                            onMouseEnter={() => setActiveIndex(index)}
+                            onClick={() => { onSelectSubject(code); onClose(); }}
+                            className={`w-full flex items-center px-3 py-3 rounded group transition-colors text-left ${active ? 'bg-uni-border/60' : 'hover:bg-uni-border/50'}`}
+                          >
+                            <BookOpen size={16} className="text-uni-cyan mr-3 shrink-0" />
+                            <span className="text-uni-contrast group-hover:text-uni-cyan font-bold">
+                              <Highlight text={code} query={query} />
+                            </span>
+                            <ArrowRight size={14} className="ml-auto text-uni-muted" />
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
 
-                  {/* Resources Group */}
-                  {filteredResources.length > 0 && (
+                  {topResults.length > 0 && (
                     <div>
                       <div className="px-3 py-2 text-xs font-bold text-uni-muted uppercase">Resources</div>
-                      {filteredResources.map(res => (
-                        <button
-                          key={res.id}
-                          onClick={() => { onSelectResource(res.id); onClose(); }}
-                          className="w-full flex items-center px-3 py-3 hover:bg-uni-border/50 rounded group transition-colors text-left"
-                        >
-                          <Hash size={16} className="text-uni-muted mr-3 group-hover:text-uni-contrast" />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-uni-contrast truncate text-sm font-medium">{res.title}</div>
-                            <div className="text-xs text-uni-muted flex gap-2">
-                              <span>{res.courseCode}</span>
-                              <span>•</span>
-                              <span className="uppercase">{res.type}</span>
+                      {topResults.map((res, index) => {
+                        const itemIndex = subjects.length + index;
+                        const active = activeIndex === itemIndex;
+                        return (
+                          <button
+                            key={res.id}
+                            onMouseEnter={() => setActiveIndex(itemIndex)}
+                            onClick={() => { onSelectResource(res.id); onClose(); }}
+                            className={`w-full flex items-center px-3 py-3 rounded group transition-colors text-left ${active ? 'bg-uni-border/60' : 'hover:bg-uni-border/50'}`}
+                          >
+                            <Hash size={16} className="text-uni-muted mr-3 group-hover:text-uni-contrast shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-uni-contrast truncate text-sm font-medium">
+                                <Highlight text={res.title} query={query} />
+                              </div>
+                              <div className="text-[11px] text-uni-muted flex gap-2 truncate">
+                                <span>{res.courseCode}</span>
+                                <span>•</span>
+                                <span>{res.slot}</span>
+                                <span>•</span>
+                                <span className="uppercase">{res.type}</span>
+                                {res.topics.length > 0 && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="truncate">#{res.topics.slice(0, 2).join(' #')}</span>
+                                  </>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        </button>
-                      ))}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
 
-                  {filteredSubjects.length === 0 && filteredResources.length === 0 && (
-                    <div className="text-center py-12 text-uni-muted">
-                      <p className="prose-read">No matches found.</p>
+                  {results.length === 0 && (
+                    <div className="text-center py-10 px-4 text-uni-muted">
+                      <p className="prose-read text-sm">Nothing matches “{query.trim()}”.</p>
+                      <p className="prose-read text-xs mt-2">
+                        Try a course code (CSE2004), a slot (B1) or a topic — or switch AI on and ask instead.
+                      </p>
                     </div>
                   )}
                 </div>
               )}
-              {!query && (
+              {!hasQuery && (
                 <div className="p-4">
-                  <h4 className="text-xs font-bold text-uni-muted uppercase mb-2">Suggested</h4>
+                  <h4 className="text-xs font-bold text-uni-muted uppercase mb-2">Suggested topics</h4>
                   <div className="flex flex-wrap gap-2">
-                    {AVAILABLE_TOPICS.slice(0, 6).map(topic => (
-                      <span key={topic} className="px-2 py-1 bg-uni-border/30 rounded text-xs text-uni-contrast cursor-pointer hover:bg-uni-border transition-colors" onClick={() => setQuery(topic)}>
+                    {AVAILABLE_TOPICS.slice(0, 8).map(topic => (
+                      <button
+                        key={topic}
+                        className="px-2 py-1 bg-uni-border/30 rounded text-xs text-uni-contrast hover:bg-uni-border transition-colors"
+                        onClick={() => setQuery(topic)}
+                      >
                         {topic}
-                      </span>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -203,8 +301,8 @@ export const SearchOverlay: React.FC<Props> = ({ onClose, onSelectResource, onSe
         </div>
 
         <div className="p-2 border-t border-uni-border bg-uni-black text-[10px] text-uni-muted flex justify-between">
-          <span>Navigate with arrows</span>
-          <span>NVIDIA NIM Powered</span>
+          <span>{aiMode ? 'Enter to ask · Esc to close' : '↑ ↓ to move · Enter to open · Esc to close'}</span>
+          <span>Ctrl+K to open</span>
         </div>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Resource } from '../types';
+import { resourceDownloadUrl } from '../services/api';
 import { Download, ThumbsUp, User, Calendar, MessageSquare, ArrowDown } from 'lucide-react';
 
 interface Props {
@@ -89,9 +90,17 @@ export const ResourceCard: React.FC<Props> = ({ resource }) => {
             </div>
         </div>
         
-        <button className="text-uni-black bg-uni-neon hover:bg-uni-contrast transition-colors p-2 border border-uni-neon hover:border-uni-contrast shadow-hard-neon hover:shadow-hard hover:translate-x-[2px] hover:translate-y-[2px] active:shadow-none active:translate-x-[4px] active:translate-y-[4px]">
+        {/* A real download link (it used to be an inert button).
+            stopPropagation keeps the card's "open viewer" click from firing. */}
+        <a
+          href={resourceDownloadUrl(resource)}
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Download ${resource.title}`}
+          title="Download"
+          className="text-uni-black bg-uni-neon hover:bg-uni-contrast transition-colors p-2 border border-uni-neon hover:border-uni-contrast shadow-hard-neon hover:shadow-hard hover:translate-x-[2px] hover:translate-y-[2px] active:shadow-none active:translate-x-[4px] active:translate-y-[4px]"
+        >
           <Download size={16} />
-        </button>
+        </a>
       </div>
     </div>
   );

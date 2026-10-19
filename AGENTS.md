@@ -48,6 +48,8 @@ types.ts                shared frontend types == API contract
 docs/case-study.md      the DBMS case study (all 11 required stages)
 docs/improvements.md    prioritised improvement audit (measured numbers + backlog)
 public/fonts/           self-hosted latin-subset woff2 (no Google Fonts)
+server/storage/seed/    the 11 seeded course PDFs (committed; /files/seed/…)
+server/storage/uploads/ runtime PDF uploads (gitignored)
 ```
 
 `Resource.id` is a **string** on the wire (matches `types.ts` and the route
@@ -60,10 +62,12 @@ param). Keep it that way — the repository casts the integer PK with `String()`
 - MongoDB → MySQL port complete. Mongoose models (`server/src/models/`) were
   **deleted** and replaced by `server/src/repositories/`.
 - `db/schema.sql` + `db/seed.sql` apply cleanly via `npm run db:reset`;
-  10 resources, 34 topic links, 3 comments, 2,912 activity rows, **1 user**
-  (admin123 / admin123@uniarchive.local, role=admin, is_verified=1).
+  **11 real resources** (all previewable PDFs), 24 topic links, 7 comments,
+  1,456 activity rows, **7 users**: `admin123` / `scse` (admin) and six students
+  (`pratikambastha5`, `aarav.sharma`, `meera.iyer`, `rohan.gupta`, `ananya.rao`,
+  `kabir.menon`) who all use `student123`.
 - Backend + frontend both build; `tsc --noEmit` clean.
-- **37 tests; 37 pass.** (`npm test` reseeds `test_uniarchive_test` first.)
+- **42 tests; 42 pass.** (`npm test` reseeds `test_uniarchive_test` first.)
 - API contract unchanged for existing endpoints; `POST /api/auth/login` and
   `POST /api/auth/signup` return the same `User` shape as `/api/auth/verify`.
 - Published: **github.com/amorfati3735/uniarchive-dbms** (public).
@@ -216,8 +220,85 @@ param). Keep it that way — the repository casts the integer PK with `String()`
   tunnel → this machine, so `/api/resources` costs **0.21–1.05 s** vs **4 ms**
   locally. `docs/improvements.md` lists that and the rest of the backlog.
 
+**Content, AI, search, stats and downloads (2026-10-18, fourth session):**
+- **Archive populated with real course material.** 11 PDFs from the user's
+  Downloads (BACSE202 SQL lab manual + function practice + indexing problems +
+  PL/SQL notes; BAMAT207 z-tables, module-2 tutorial, tutorial 2, assessment 4/6
+  solutions; BACSE203 lab report; BASTS101 syllabus) replaced the ten
+  `dummy.pdf` rows, and the three junk uploads (`samplesample`, `sample`, the old
+  case-study row) were deleted — rows **and** their Cloudinary assets. Seed and
+  live DB were rebuilt together: `npm run db:reset` now yields the same clean
+  archive.
+- **Demo data is coherent:** 7 users (admin123 + 6 students, all students share
+  `student123`), 4 real courses, 24 topic links, 7 comments, and
+  `course_stats.total_resources/quality_avg/completeness` are **computed from the
+  resources** instead of invented.
+- **PDFs are stored locally, not on Cloudinary.** The Cloudinary account has
+  PDF/ZIP delivery disabled: any URL ending in `.pdf` answers **401**, which
+  silently broke every uploaded/seeded PDF. `server/src/utils/storage.ts` writes
+  PDFs to `server/storage/{seed,uploads}` and serves them from `/files/…`;
+  `createResource` sends only images to Cloudinary. The static mount in `app.ts`
+  keeps direct `/files/...` links working.
+- **Download/preview names fixed.** `GET /api/resources/:id/download/<slug>.pdf`
+  sends `attachment; filename="bacse202-basic-sql-commands-lab-manual.pdf"` and
+  increments the counter server-side; the preview URL now ends in the same slug
+  because Chrome's PDF viewer names a saved inline file after the URL's last
+  segment (that is why downloads used to be called `preview`). The ResourceCard
+  download icon is a real link now.
+- **AI wired to Velona** (`server/src/utils/ai.ts`): OpenAI-compatible
+  `https://velona.in/v1`, model `deepseek/deepseek-v4-flash-0731`, browser-ish
+  User-Agent (Cloudflare 1010 otherwise), 30 s timeout, `max_tokens` 420.
+  `POST /api/ai/ask` is **grounded in the DB**: `aiRepository.buildCatalogueContext`
+  extracts question terms, matches at most 6 resources, and sends a ≤1.2 kB
+  context; the response includes `sources` and `{model, provider}`, and
+  `/api/health` exposes the model (never the key). Legacy `NVIDIA_*` vars still
+  work as a fallback. Wallet is tiny (~₹4) — keep requests light.
+- **Search is ranked and instant.** `services/search.ts` scores title/course/
+  slot/type/topics/professor/description, ANDs query tokens with an OR fallback,
+  and breaks ties by quality/upvotes; the Discover bar is a real input (with a
+  result count and clear button) and the overlay adds highlighting, counts,
+  ↑/↓ + Enter navigation, and AI mode with clickable sources. The old Tab-to-AI
+  hijack is gone.
+- **Stats page is real.** `Analytics` derives everything from the catalogue:
+  KPIs, working 7/30/all windows, slot chart, type + quality distributions,
+  per-course coverage (click-through), aggregate activity grid, real top
+  contributors and most downloaded/upvoted lists; the hardcoded
+  "B1 leads contributions" sentence is computed.
+- Tests: **42/42** (new: preview/download headers, PDF counter ownership, AI
+  context shape + question validation). Root `tsc --noEmit` and `server`
+  typecheck are both clean (the old `smtp.reason` union error is fixed).
+
+**Background Effects Prototype Engine (2026-10-19 session):**
+- Built an interactive, zero-dependency background effects prototype engine
+  (`components/BackgroundFX/`) to test and compare lighting, dithering, ASCII,
+  and parallax treatments without violating the brutalist "no gradient" rule:
+  - **`LightingCanvas`**: Oscilloscope/phosphor CRT spotlight with dual-tier
+    concentric reticle, cursor lerp, CRT scanline sweep, and proximity grid
+    intersection illumination (`+` cross markers).
+  - **`DitherCanvas`**: Authentic 8x8 Bayer ordered dithering pattern computed
+    over a downsampled 1/4 buffer with bitwise 32-bit pixel operations (~0.4ms
+    draw time); creates a 1-bit retro computing vignette + cursor crater.
+  - **`AsciiCanvas`**: Sparse academic/engineering math & CS glyph matrix
+    (`λ`, `∫`, `∂`, `∑`, `0x`, `[]`, `SELECT`, `JOIN`, `3NF`, `O(1)`) using
+    JetBrains Mono; cursor proximity triggers randomized character scramble and
+    decoding into course keywords.
+  - **`ParallaxField`**: 3-plane architectural blueprint coordinate system
+    (`[SEC 01]`, `[DATUM +0.00]`, slot tags `[A1]`, `[B2]`, corner HUD)
+    reacting to scroll velocity and mouse tilt via GPU `translate3d`.
+  - **`CyberdeckComposite`**: Harmonized composite layer blending dither
+    vignette + phosphor lighting reticle + sparse ASCII points.
+  - **`FXControls`**: Unobtrusive neo-brutalist floating prototype switcher pill
+    (`[ ⚡ FX: ... ]`) in the bottom-right corner. Allows switching modes,
+    tuning intensity (`subtle` / `medium` / `high`), toggling mouse reactivity,
+    and switching accent color (`neon` / `cyan` / `monochrome`).
+  - Settings persist in `localStorage` (`uniarchive_fx_config`), honor
+    `prefers-reduced-motion`, pause on hidden tab, and adapt to Dark/Light theme.
+  - Bundle impact is minimal: ~6 kB gzip added to entry chunk; `tsc --noEmit`
+    and `vite build` remain completely green.
+
+
 **Not done / optional** (see §9): dedicated DB user, rendered ER image,
-fixing the broken SMTP/NVIDIA keys, a stable (non-ephemeral) tunnel URL.
+fixing the broken SMTP key, a stable (non-ephemeral) tunnel URL.
 
 ## 4. Run it
 
@@ -323,22 +404,24 @@ npm install && npm run dev   # Vite, port 3000
   `SET FOREIGN_KEY_CHECKS = 1` between the TRUNCATEs and the INSERTs made the
   batch fail at the `resources` INSERT with `fk_resources_author` even though
   `users(user_id=1)` existed — standalone INSERT worked, batch did not. If you
-  touch the seed, verify `npm run db:reset` imports **all 10 resources** (not
-  0 or 1) and that `GET /api/resources` returns 10.
+  touch the seed, verify `npm run db:reset` imports **all 11 resources** (not
+  0 or 1) and that `GET /api/resources` returns 11.
 - **Seed author gotcha:** every `resources` row's `author_id` must reference an
-  existing `users.user_id`. With a single demo user (user_id=1), all 10
-  resources must use `author_id=1`; otherwise the RESOURCE_SELECT JOIN filters
-  them out and the API returns fewer than 10 resources even though the table has
-  10 rows.
-- ⚠ **Cloudinary `raw` assets break browser preview unless re-labelled.** PDFs
-  are uploaded with `resource_type: 'raw'`, and Cloudinary then serves them as
-  `content-type: application/octet-stream` **and**
-  `content-disposition: attachment`, with no file extension in the URL. Embedded
-  directly, the browser downloads the file instead of previewing it. That is why
-  the seeded rows (real `application/pdf` from w3.org) previewed while every
-  upload did not. `GET /api/resources/:id/preview` fixes both: it forces
-  `Content-Disposition: inline` and sniffs the `%PDF-` magic bytes to set
-  `Content-Type: application/pdf` regardless of what the host claims.
+  existing `users.user_id` (1..7 in the seed). A dangling author is silently
+  filtered out by the RESOURCE_SELECT JOIN, so the API returns fewer rows than
+the table holds — check `SELECT COUNT(*)` against `/api/resources` after editing.
+- ⚠ **Do not put PDFs back on Cloudinary.** This account has PDF/ZIP delivery
+  disabled, so *any* asset URL ending in `.pdf` answers `401` (a 1×1 gif). PDFs
+  therefore live in `server/storage/{seed,uploads}` and are served from `/files/…`;
+  `createResourceHandler` writes PDFs locally and only images go to Cloudinary.
+  The preview/download endpoints sniff the `%PDF-` magic bytes, so the content
+  type is right even for legacy `raw`/octet-stream assets.
+- **Download filenames come from two places.** The `attachment` endpoint sets
+  `filename="<course>-<title>.pdf"`, but Chrome's built-in PDF viewer ignores
+  `Content-Disposition` for files it shows *inline* and names them after the
+  URL's last segment — hence preview URLs must end in `/<slug>.pdf` (the slug is
+  ignored by the handler, it is only there for the browser). Remove it and every
+  save becomes `preview.pdf` again.
 - The preview endpoint caches bytes in-process (64 entries, 5-min TTL) and
   honours single byte ranges (`206` + `Content-Range`, `416` when unsatisfiable,
   `Accept-Ranges: bytes`), so the browser's PDF viewer can stream/seek. It still
@@ -384,9 +467,10 @@ npm install && npm run dev   # Vite, port 3000
   sides or search silently diverges.
 - **Cache headers live in `vercel.json`** (`/assets/*`, `/fonts/*` → immutable).
   An asset directory with content hashes should be added there too.
-- **The demo password is trivial** (`scse`, legacy unsalted SHA-256). Anyone
-  with the demo credential can log in. Real signups use salted scrypt, but
-  there is still no rate limiting, sessions or email verification — demo-grade.
+- **The demo passwords are trivial:** `admin123` / `scse` (legacy unsalted
+  SHA-256) and every seeded student / `student123` (salted scrypt). Anyone with
+  a demo credential can log in. Real signups use salted scrypt, but there is
+  still no rate limiting, sessions or email verification — demo-grade.
 - **Two password formats exist side by side** (`users.password_hash`):
   `scrypt$<16-byte salt hex>$<32-byte hash hex>` for accounts created through
   `/api/auth/signup`, and a bare 64-char SHA-256 hex for the seeded `admin123`
@@ -402,7 +486,7 @@ npm install && npm run dev   # Vite, port 3000
 ```bash
 cd server
 npm run typecheck                 # must be clean
-npm test                          # 28/29 (see §3); ⚠ reseeds → WIPES uploads
+npm test                          # 42/42 (see §3); reseeds a SEPARATE test DB
 npm run build                     # dist/ must compile
 npm run dev &                     # then exercise the API:
 curl -s localhost:5000/api/health
@@ -411,6 +495,8 @@ curl -s localhost:5000/api/stats | head -c 200
 curl -s -X POST localhost:5000/api/resources/1/upvote
 # PDF preview must come back inline as a PDF (not octet-stream / attachment)
 curl -sI localhost:5000/api/resources/1/preview | grep -iE 'content-type|content-disposition'
+# ... and the download must carry a readable filename, not "preview.pdf"
+curl -sI localhost:5000/api/resources/1/download/anything.pdf | grep -i 'content-disposition'
 
 cd .. && npm run build            # frontend must build
 mariadb test_uniarchive -e "SELECT * FROM v_course_overview;"
@@ -431,8 +517,15 @@ add suppressions to make checks pass.
 - [x] Collapse seed to a single demo user + fix seed FK/author bugs.
 - [x] Import Cloudinary/SMTP/NVIDIA keys from the downloaded copy (Cloudinary
       works; SMTP + NVIDIA keys are bad and need regeneration).
-- [ ] Fix the bad SMTP + NVIDIA keys (regenerate Gmail app password / NVIDIA
-      key) so OTP email + AI chat work.
+- [x] AI chat works again: **Velona** gateway + `deepseek/deepseek-v4-flash-0731`,
+      grounded in the DB (see §3). SMTP is still broken and now unused — signup
+      no longer needs it.
+- [x] Real archive content (11 course PDFs), junk uploads deleted, seed and live
+      DB in sync.
+- [x] Download/preview filenames (`/download/<slug>.pdf`, slugged preview URLs).
+- [x] Ranked client-side search + a stats page built from live data.
+- [ ] Watch the Velona wallet (low balance) and add a per-client rate limit on
+      `/api/ai/ask` before exposing the assistant widely.
 - [ ] Create a dedicated MariaDB user + password instead of the anonymous user.
 - [ ] Render the ER/EER diagram to an image (PlantUML / draw.io) for submission.
 - [ ] Add the architecture note to the user's global `~/AGENTS.md` if desired.
@@ -472,3 +565,16 @@ add suppressions to make checks pass.
 | 2026-10-18 | Design + speed pass: removed every gradient (hero/login/grid overlay/heatmap texture → flat colours + SVG patterns), self-hosted the three font families as latin-subset woff2 (zero third-party origins, no render-blocking stylesheet, inline SVG favicon, preloaded above-the-fold faces), reworked typography (Unbounded display / Inter reading text / JetBrains Mono chrome, fluid hero `clamp()`, `text-wrap: balance|pretty`, `.tabular` numerals, higher-contrast dark palette), added `immutable` cache headers for `/assets` + `/fonts`, deleted dead `geminiService` + the inlined `GEMINI_API_KEY` define, replaced the debounced per-keystroke API calls with in-memory filtering/search (0 requests per filter click or keystroke), and derived `SubjectDetail`'s placeholder contributor numbers from real data. Measured cold A/B: FCP 220 → 88 ms, first paint 163 → 31 ms, third-party origins 2 → 0. Wrote `docs/improvements.md` (measured audit + prioritised backlog). |
 | 2026-10-18 | Signup + mobile pass. Added `POST /api/auth/signup` (normal account, no SMTP) with scrypt password hashing (`hashPassword`/`verifyPassword`, legacy SHA-256 still accepted); 400/409 validation and duplicate handling. `LoginOverlay` became a Sign in / Create account tabbed modal with `api.signup`. Tests grew 29 → 37 (signup contract, duplicate/validation rejection, scrypt-not-plaintext, legacy demo login) and all pass. Fixed phone layouts: navbar overflow, filter sheet `w-64`→`w-full`, overlays `z-[70]` above `MobileNav`, touch-invisible hover-only controls, ResourceViewer PDF/discussion split. Verified at 320/360/390px in headless Chrome (`scrollWidth === clientWidth` everywhere) plus an end-to-end UI signup, then `vercel deploy --prod`. |
 | 2026-10-18 | **Deployed: https://uniarchive.vercel.app** (project `uniarchive`, CLI-linked via `.vercel/`). Architecture changed from services-mode: root `vercel.json` is now a plain static frontend (Vite → `dist`) whose `/api/(.*)` rewrite proxies to the backend **running on the local machine** through an outbound Cloudflare quick tunnel — no inbound ports, local MariaDB never exposed (user's device-safety requirement). Tunnel: `cloudflared tunnel --url http://localhost:5001` (binary at `~/bin/cloudflared`, log `/tmp/ua_tunnel.log`); the `trycloudflare.com` URL is **ephemeral** — if it changes, update the rewrite in `vercel.json` and `vercel deploy --prod`. Backend+frontend dev processes: `/tmp/uniarchive-server.log`, `/tmp/uniarchive-frontend.log`. Services-mode `backend` service, its CORS headers and the `api.*` host rule were removed (backend is now cross-origin proxy target, same-origin to the browser). `vercel curl` warns "Deployment Protection on" but production is publicly readable (verified anon: `/`, `/library`, `/api/health`, `/api/resources`). Pushed `feature/demo-login` (036153f). |
+| 2026-10-18 | Content + AI pass: replaced the ten `dummy.pdf` rows with **11 real course PDFs** (BACSE202/BAMAT207/BACSE203/BASTS101) copied from the user's Downloads into `server/storage/seed`, added six student demo users (`student123`), deleted the three junk uploads *and* their Cloudinary assets, and made `course_stats` derive from real resources. Discovered the Cloudinary account has PDF delivery disabled (`.pdf` → 401), so PDFs now live in `server/storage/` and are streamed by the app; uploads write PDFs locally and send images to Cloudinary. Added `GET /api/resources/:id/download/<slug>.pdf` (attachment + readable name + server-side counter) and slugged preview URLs so Chrome stops saving files as `preview.pdf`. Rewired the assistant to **Velona** (`deepseek/deepseek-v4-flash-0731`, tiny grounded context, sources + model in the response, `AI_*` env vars, `NVIDIA_*` fallback). Rewrote search (ranked scoring, AND/OR token matching, real Discover input, highlight + keyboard nav in the overlay) and the stats page (KPIs, working 7/30/all windows, distributions, contributors, derived headline). Tests 42/42; `docs/case-study.md` counts, `db/seed.sql` and the root `tsc` error updated. |
+| 2026-10-18 | Added `start-backend.bat` for Windows local backend launching (checks `MySQL80` service status, runs `npm run dev` in `server/`, supports `Ctrl+C`). Clarified that dual-boot Arch Linux DB files are not needed since schema and seeds (`db/schema.sql`, `db/seed.sql`) are fully self-contained in the repo. |
+| 2026-10-18 | Windows MySQL 8.0 setup: created database user `'uniarchive'@'localhost'` (password: `scse`) with full grants on `test_uniarchive` and seeded tables via `npm run db:reset`. Fixed MySQL 8.0 reserved keyword clash in `server/src/repositories/aiRepository.ts` (`rank` -> `match_rank`), restoring test suite to 42/42 passing. |
+| 2026-10-18 | Created `start-uniarchive.bat` (unified single-click launcher that checks MySQL, starts backend on 5001 + frontend on 3000 concurrently via `npm run dev`, displays local and mobile Wi-Fi URLs, and opens browser automatically). Installed root dependencies on Windows so `vite` and `concurrently` run natively. |
+| 2026-10-18 | Production deploy & automated demo sync: deployed `feature/demo-login` branch to `https://uniarchive.vercel.app` via Vercel CLI. Created `scripts/launch-demo.ps1` and wired into `start-uniarchive.bat` to automate the entire live demo workflow: checks MySQL, starts backend, opens outbound Cloudflare tunnel, auto-updates `vercel.json`, syncs to Vercel production in ~15s, and opens `https://uniarchive.vercel.app`. Verified live production endpoint serves all 11 resources from the laptop database to any phone/device globally. |
+| 2026-10-18 | Audited & updated `docs/case-study.md` (updated test metrics to 42/42 passing, added salted scrypt auth, AI search endpoint, and corrected activity row count). Created `docs/teacher-review-walkthrough.md` with a complete step-by-step presentation script, MySQL app queries, constraint proofs, and teacher Q&A answers. |
+| 2026-10-19 | Background FX prototypes: created zero-dependency interactive background engine (`components/BackgroundFX/`) featuring phosphor CRT spotlight (`LightingCanvas`), 8x8 Bayer ordered dithering (`DitherCanvas`), sparse academic CS/math constellation with proximity decode (`AsciiCanvas`), 3-plane blueprint HUD (`ParallaxField`), and hybrid (`CyberdeckComposite`). Added floating interactive controller HUD (`FXControls`) to test and customize prototypes live in the UI. Zero extra dependencies, fully compliant with brutalist flat-pattern rule (no CSS gradients). |
+
+
+
+
+
+

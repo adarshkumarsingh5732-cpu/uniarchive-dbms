@@ -176,13 +176,20 @@ export const getResourceById = async (id: number | string): Promise<ResourceDTO 
     return resource;
 };
 
-/** Just the stored file URL, used by the inline preview proxy. */
-export const getResourceFileUrl = async (id: number | string): Promise<string | null> => {
-    const row = await queryOne<{ pdf_url: string }>(
-        'SELECT pdf_url FROM resources WHERE resource_id = ?',
+/**
+ * File URL plus the bits needed to name the download, used by the
+ * preview/download proxy.
+ */
+export const getResourceFileMeta = async (
+    id: number | string
+): Promise<{ pdfUrl: string; title: string; courseCode: string } | null> => {
+    const row = await queryOne<{ pdf_url: string; title: string; courseCode: string }>(
+        `SELECT r.pdf_url AS pdf_url, r.title AS title, c.course_code AS courseCode
+           FROM resources r JOIN courses c ON c.course_id = r.course_id
+          WHERE r.resource_id = ?`,
         [id]
     );
-    return row?.pdf_url ?? null;
+    return row ? { pdfUrl: row.pdf_url, title: row.title, courseCode: row.courseCode } : null;
 };
 
 /** Increment a view / download / upvote counter and return the new value. */

@@ -53,6 +53,21 @@ export interface PinnedSubject {
   resourcesCount?: number;
 }
 
+/** One archived resource the AI answer was grounded in. */
+export interface AIAnswerSource {
+  id: string;
+  title: string;
+  courseCode: string;
+  type: string;
+}
+
+/** Response of POST /api/ai/ask. */
+export interface AIAnswer {
+  answer: string;
+  sources: AIAnswerSource[];
+  ai: { model: string; provider: string } | null;
+}
+
 export interface User {
   email: string;
   username: string;
